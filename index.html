@@ -1,1 +1,791 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+  <meta charset="UTF-8">
+  <title>Rodé Lajos - Hópehely generátor</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    body {
+      margin: 0;
+      padding: 0;
+      background: #f2f4f8;
+      color: #222;
+    }
+    h1 {
+      font-size: 1.4rem;
+      margin: 0 0 0.5rem 0;
+    }
+    h2 {
+      font-size: 1rem;
+      margin-top: 0;
+    }
+    .page {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 1rem;
+    }
+    .container {
+      display: flex;
+      gap: 1rem;
+      align-items: stretch;
+    }
+    .controls {
+      flex: 0 0 360px;
+      background: #fff;
+      border-radius: 8px;
+      padding: 0.8rem 1rem 1rem;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+    }
+    .canvas-container {
+      flex: 1;
+      background: #001633; /* sötét / mélykék */
+      border-radius: 8px;
+      padding: 0.5rem;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .control-group {
+      margin-bottom: 0.8rem;
+    }
+    .control-group label {
+      display: block;
+      font-size: 0.85rem;
+      margin-bottom: 0.2rem;
+    }
+    .control-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .control-row input[type="range"] {
+      flex: 1;
+    }
+    .control-row input[type="number"] {
+      width: 4.5rem;
+      padding: 0.1rem 0.2rem;
+    }
+    .separator {
+      text-align: center;
+      color: #888;
+      font-size: 0.8rem;
+      margin: 0.4rem 0;
+    }
+    .buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-top: 0.5rem;
+    }
+    button {
+      flex: 1 1 48%;
+      padding: 0.35rem 0.6rem;
+      border-radius: 6px;
+      border: none;
+      cursor: pointer;
+      font-size: 0.85rem;
+      font-weight: 500;
+      transition: background 0.15s, box-shadow 0.15s, transform 0.05s;
+    }
+    button.primary {
+      background: #0d6efd;
+      color: #fff;
+    }
+    button.secondary {
+      background: #e9ecef;
+      color: #222;
+    }
+    button:hover {
+      box-shadow: 0 1px 4px rgba(0,0,0,0.18);
+    }
+    button:active {
+      transform: translateY(1px);
+      box-shadow: 0 0 0 rgba(0,0,0,0);
+    }
+    canvas {
+      border-radius: 8px;
+      background: #001633; /* rajzi mező háttere mélykék */
+      box-shadow: inset 0 0 6px rgba(0,0,0,0.4);
+    }
+    .note {
+      font-size: 0.75rem;
+      margin-top: 0.4rem;
+      color: #555;
+    }
+    @media (max-width: 900px) {
+      .container {
+        flex-direction: column;
+      }
+      .controls {
+        flex: none;
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+  <h1>Rodé Lajos - Hópehely generátor</h1>
 
+  <div class="container">
+    <div class="controls">
+      <h2>Paraméterek</h2>
+
+      <div class="control-group">
+        <label for="angleSlider">Szög (°)</label>
+        <div class="control-row">
+          <input id="angleSlider" type="range" min="10" max="75" step="1" value="30">
+          <input id="angleInput" type="number" min="10" max="75" step="1" value="30">
+        </div>
+      </div>
+
+      <div class="control-group">
+        <label for="ratioSlider">Vastagság (%)</label>
+        <div class="control-row">
+          <input id="ratioSlider" type="range" min="5" max="40" step="1" value="20">
+          <input id="ratioInput" type="number" min="5" max="40" step="1" value="20">
+        </div>
+      </div>
+
+      <div class="control-group">
+        <label for="spacingSlider">Köz (%)</label>
+        <div class="control-row">
+          <input id="spacingSlider" type="range" min="10" max="50" step="1" value="30">
+          <input id="spacingInput" type="number" min="10" max="50" step="1" value="30">
+        </div>
+      </div>
+
+      <div class="control-group">
+        <label for="reductionSlider">Méretcsökkenés (%)</label>
+        <div class="control-row">
+          <input id="reductionSlider" type="range" min="0" max="70" step="1" value="40">
+          <input id="reductionInput" type="number" min="0" max="70" step="1" value="40">
+        </div>
+      </div>
+
+      <div class="separator">-------------</div>
+
+      <div class="control-group">
+        <label for="armsSlider">Karok száma</label>
+        <div class="control-row">
+          <input id="armsSlider" type="range" min="3" max="12" step="1" value="6">
+          <input id="armsInput" type="number" min="3" max="12" step="1" value="6">
+        </div>
+      </div>
+
+      <div class="separator">-------------</div>
+
+      <div class="control-group">
+        <label for="minRectSlider">Min. vastagság (mm)</label>
+        <div class="control-row">
+          <input id="minRectSlider" type="range" min="0" max="10" step="0.1" value="0">
+          <input id="minRectInput" type="number" min="0" max="10" step="0.1" value="0">
+        </div>
+      </div>
+
+      <div class="control-group">
+        <label>
+          <input type="checkbox" id="growSmallCheckbox">
+          Kisebbek növelése
+        </label>
+      </div>
+
+      <div class="buttons">
+        <button id="randomBtn" class="secondary">Véletlen paraméterek</button>
+        <button id="toggleOutlineBtn" class="secondary">Kontúr ki/be</button>
+        <button id="exportSolidBtn" class="primary">Mentés (DXF)</button>
+      </div>
+
+      <div class="note">
+        A DXF-ben a hópehely befoglaló dobozának nagyobbik mérete ≈ 100 mm.
+      </div>
+    </div>
+
+    <div class="canvas-container">
+      <canvas id="snowflakeCanvas" width="600" height="600"></canvas>
+    </div>
+  </div>
+</div>
+
+<script>
+  // --- Globális állapot ---
+  let currentModel = null; // { rects: [ [ [x,y]... ] ], minX, maxX, minY, maxY }
+  const DXF_TARGET_SIZE = 100.0; // a DXF-ben a teljes hópehely max. kiterjedése (mm)
+  let showOutline = false;  // alapból KIKAPCSOLT kontúr
+
+  // --- Paraméterkezelés ---
+
+  function syncInputPair(sliderId, numberId, onChange) {
+    const slider = document.getElementById(sliderId);
+    const input  = document.getElementById(numberId);
+
+    slider.addEventListener('input', () => {
+      input.value = slider.value;
+      onChange();
+    });
+
+    input.addEventListener('change', () => {
+      let v = parseFloat(input.value);
+      const min = parseFloat(slider.min);
+      const max = parseFloat(slider.max);
+      if (isNaN(v)) v = min;
+      v = Math.max(min, Math.min(max, v));
+      input.value = v;
+      slider.value = v;
+      onChange();
+    });
+  }
+
+  function getParams() {
+    return {
+      branchAngleDeg: parseFloat(document.getElementById('angleSlider').value) || 30,   // Szög
+      rectAspectPercent: parseFloat(document.getElementById('ratioSlider').value) || 20, // Vastagság
+      spacingPercent: parseFloat(document.getElementById('spacingSlider').value) || 30,  // Köz
+      reductionPercent: parseFloat(document.getElementById('reductionSlider').value) || 40, // Méretcsökkenés
+      armCount: parseInt(document.getElementById('armsSlider').value, 10) || 6,          // Karok száma
+      minRectMm: parseFloat(document.getElementById('minRectSlider').value) || 0,        // Min. vastagság
+      growSmallRects: document.getElementById('growSmallCheckbox').checked               // Kisebbek növelése
+    };
+  }
+
+  // --- Téglalap egy bázispontból (+X jobbra, +Y felfelé) ---
+
+  function makeRectFromBase(bx, by, length, width, angleRad) {
+    const d = { x: Math.cos(angleRad), y: Math.sin(angleRad) };        // hossz irány
+    const n = { x: -Math.sin(angleRad), y: Math.cos(angleRad) };       // szélesség irány (balra)
+
+    const halfL = length / 2;
+    const halfW = width / 2;
+
+    const cx = bx + d.x * halfL;
+    const cy = by + d.y * halfL;
+
+    const p1 = [ cx + n.x * halfW + d.x * halfL, cy + n.y * halfW + d.y * halfL ];
+    const p2 = [ cx - n.x * halfW + d.x * halfL, cy - n.y * halfW + d.y * halfL ];
+    const p3 = [ cx - n.x * halfW - d.x * halfL, cy - n.y * halfW - d.y * halfL ];
+    const p4 = [ cx + n.x * halfW - d.x * halfL, cy + n.y * halfW - d.y * halfL ];
+
+    return [p1, p2, p3, p4, p1.slice()]; // zárt gyűrű (első pont ismételve)
+  }
+
+  // --- Egy „fa” téglalapjai ---
+
+  function buildSingleTreeRectangles(params) {
+    const rects = [];
+
+    const trunkLength = 50;  // modell-egység (DXF-ben skálázzuk)
+    const aspect = Math.max(0.02, params.rectAspectPercent / 100.0);
+    const trunkWidth = trunkLength * aspect;
+
+    const trunkAngle = Math.PI / 2; // törzs felfelé
+    const spacing = params.spacingPercent;
+    const angleOffset = params.branchAngleDeg * Math.PI / 180.0;
+    const reduction = Math.max(0, Math.min(0.95, params.reductionPercent / 100.0));
+
+    // törzs töve az origóban
+    rects.push(makeRectFromBase(0, 0, trunkLength, trunkWidth, trunkAngle));
+
+    const count = Math.floor(100 / spacing);
+    if (count <= 0) return rects;
+
+    const dTrunk = { x: Math.cos(trunkAngle), y: Math.sin(trunkAngle) };
+    const signs = [+1, -1];
+
+    for (let i = 1; i <= count; i++) {
+      const t = i * spacing / 100.0;
+      const posOnTrunk = trunkLength * t;
+
+      const baseX = dTrunk.x * posOnTrunk;
+      const baseY = dTrunk.y * posOnTrunk;
+
+      const branchLength = trunkLength * Math.pow(1 - reduction, i);
+      const branchWidth  = branchLength * aspect;
+
+      for (const sign of signs) {
+        const branchAngle = trunkAngle + sign * angleOffset;
+        rects.push(makeRectFromBase(baseX, baseY, branchLength, branchWidth, branchAngle));
+
+        const dBranch = { x: Math.cos(branchAngle), y: Math.sin(branchAngle) };
+
+        // ágacskák
+        for (let j = 1; j <= count; j++) {
+          const t2 = j * spacing / 100.0;
+          const posOnBranch = branchLength * t2;
+
+          const twigBaseX = baseX + dBranch.x * posOnBranch;
+          const twigBaseY = baseY + dBranch.y * posOnBranch;
+
+          const twigLength = branchLength * Math.pow(1 - reduction, j);
+          const twigWidth  = twigLength * aspect;
+
+          for (const sign2 of signs) {
+            const twigAngle = branchAngle + sign2 * angleOffset;
+            rects.push(makeRectFromBase(twigBaseX, twigBaseY, twigLength, twigWidth, twigAngle));
+          }
+        }
+      }
+    }
+
+    return rects;
+  }
+
+  // --- Teljes hópehely (fa N-szeri elforgatása) ---
+
+  function buildSnowflakeRectangles(params) {
+    const base = buildSingleTreeRectangles(params);
+    const arms = Math.max(3, params.armCount);
+    const all = [];
+    const twoPi = 2 * Math.PI;
+
+    for (let k = 0; k < arms; k++) {
+      const phi = twoPi * k / arms;
+      const cosP = Math.cos(phi);
+      const sinP = Math.sin(phi);
+
+      for (const rect of base) {
+        const rotated = [];
+        for (const pt of rect) {
+          const x = pt[0];
+          const y = pt[1];
+          const rx = x * cosP - y * sinP;
+          const ry = x * sinP + y * cosP;
+          rotated.push([rx, ry]);
+        }
+        all.push(rotated);
+      }
+    }
+
+    return all;
+  }
+
+  // --- Segéd: rövid oldal felnagyítása csak szélesség irányban ---
+
+  function growRectShortSide(rect, minWidthModel) {
+    // rect: [p0,p1,p2,p3,p0]
+    const p0 = rect[0];
+    const p1 = rect[1];
+    const p2 = rect[2];
+    const p3 = rect[3];
+
+    function dist(a, b) {
+      const dx = b[0] - a[0];
+      const dy = b[1] - a[1];
+      return Math.sqrt(dx*dx + dy*dy);
+    }
+
+    const len01 = dist(p0, p1);
+    const len12 = dist(p1, p2);
+
+    // widthEdge: a rövidebb él (páros szomszéd)
+    let widthEdgeA, widthEdgeB, widthLen;
+    if (len01 <= len12) {
+      widthEdgeA = p0;
+      widthEdgeB = p1;
+      widthLen = len01;
+    } else {
+      widthEdgeA = p1;
+      widthEdgeB = p2;
+      widthLen = len12;
+    }
+
+    if (widthLen >= minWidthModel || minWidthModel <= 0) {
+      // nincs mit növelni
+      return rect;
+    }
+
+    const dxW = widthEdgeB[0] - widthEdgeA[0];
+    const dyW = widthEdgeB[1] - widthEdgeA[1];
+    const lenW = Math.sqrt(dxW*dxW + dyW*dyW);
+    if (lenW < 1e-9) {
+      // degenerált, nem tudjuk értelmesen növelni
+      return null;
+    }
+
+    // szélesség irány egységvektor
+    const wx = dxW / lenW;
+    const wy = dyW / lenW;
+
+    // téglalap közepe
+    const cx = (p0[0] + p1[0] + p2[0] + p3[0]) / 4;
+    const cy = (p0[1] + p1[1] + p2[1] + p3[1]) / 4;
+
+    const pts = [p0, p1, p2, p3];
+    const ts = [];
+    let maxAbsT = 0;
+
+    for (let i = 0; i < 4; i++) {
+      const vx = pts[i][0] - cx;
+      const vy = pts[i][1] - cy;
+      const t = vx*wx + vy*wy;  // vetület a szélesség irányra
+      ts[i] = t;
+      const at = Math.abs(t);
+      if (at > maxAbsT) maxAbsT = at;
+    }
+
+    if (maxAbsT < 1e-9) {
+      return null;
+    }
+
+    const desiredHalfWidth = minWidthModel / 2;
+    const s = desiredHalfWidth / maxAbsT;
+
+    const newPts = [];
+    for (let i = 0; i < 4; i++) {
+      const px = pts[i][0];
+      const py = pts[i][1];
+      const vx = px - cx;
+      const vy = py - cy;
+      const t = ts[i];
+
+      // szélesség irányú komponens
+      const wxComp = wx * t;
+      const wyComp = wy * t;
+
+      // merőleges komponens
+      const perpX = vx - wxComp;
+      const perpY = vy - wyComp;
+
+      const tNew = t * s;
+      const wxNew = wx * tNew;
+      const wyNew = wy * tNew;
+
+      const nx = cx + perpX + wxNew;
+      const ny = cy + perpY + wyNew;
+      newPts.push([nx, ny]);
+    }
+
+    newPts.push(newPts[0].slice()); // zárás
+
+    return newPts;
+  }
+
+  // --- Geometria frissítése: min. vastagság + növelés logika ---
+
+  function updateGeometry() {
+    const params = getParams();
+    const allRects = buildSnowflakeRectangles(params);
+
+    if (!allRects.length) {
+      currentModel = { rects: [], minX: 0, maxX: 0, minY: 0, maxY: 0 };
+      return;
+    }
+
+    // 1) Első kör: teljes hópehely bbox a skála meghatározásához
+    let minX0 = Infinity, maxX0 = -Infinity;
+    let minY0 = Infinity, maxY0 = -Infinity;
+
+    allRects.forEach(rect => {
+      rect.forEach(([x,y]) => {
+        if (x < minX0) minX0 = x;
+        if (x > maxX0) maxX0 = x;
+        if (y < minY0) minY0 = y;
+        if (y > maxY0) maxY0 = y;
+      });
+    });
+
+    const width0 = maxX0 - minX0 || 1;
+    const height0 = maxY0 - minY0 || 1;
+    const size0 = Math.max(width0, height0) || 1;
+
+    // Modell-egység -> mm skála (DXF_TARGET_SIZE mm)
+    const scaleModelToMm = DXF_TARGET_SIZE / size0;
+
+    const minRectMm = Math.max(0, params.minRectMm || 0);
+    const growSmall = params.growSmallRects;
+    const minWidthModel = minRectMm > 0 ? (minRectMm / scaleModelToMm) : 0;
+
+    // 2) Tégla-szűrés/növelés
+    const filteredRects = [];
+    let minX = Infinity, maxX = -Infinity;
+    let minY = Infinity, maxY = -Infinity;
+
+    function dist(a, b) {
+      const dx = b[0] - a[0];
+      const dy = b[1] - a[1];
+      return Math.sqrt(dx*dx + dy*dy);
+    }
+
+    for (const rect of allRects) {
+      if (rect.length < 4) continue;
+
+      let r = rect;
+
+      if (minWidthModel > 0) {
+        const p0 = r[0];
+        const p1 = r[1];
+        const p2 = r[2];
+        const p3 = r[3];
+
+        const edges = [
+          [p0, p1],
+          [p1, p2],
+          [p2, p3],
+          [p3, p0]
+        ];
+
+        let minEdgeLen = Infinity;
+        for (const [a, b] of edges) {
+          const l = dist(a, b);
+          if (l < minEdgeLen) minEdgeLen = l;
+        }
+
+        if (minEdgeLen < minWidthModel) {
+          if (!growSmall) {
+            // eldobjuk
+            continue;
+          } else {
+            // csak a rövid oldalt növeljük fel
+            const grown = growRectShortSide(r, minWidthModel);
+            if (!grown) {
+              continue;
+            }
+            r = grown;
+          }
+        }
+      }
+
+      filteredRects.push(r);
+
+      // bbox a megtartott / módosított téglalapokra
+      r.forEach(([x,y]) => {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      });
+    }
+
+    if (!filteredRects.length) {
+      currentModel = { rects: [], minX: 0, maxX: 0, minY: 0, maxY: 0 };
+      return;
+    }
+
+    currentModel = { rects: filteredRects, minX, maxX, minY, maxY };
+  }
+
+  // --- Rajzolás vászonra ---
+
+  function redraw() {
+    if (!currentModel) return;
+
+    const canvas = document.getElementById('snowflakeCanvas');
+    const ctx = canvas.getContext('2d');
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    const { rects, minX, maxX, minY, maxY } = currentModel;
+
+    if (!rects.length) return;
+
+    const width = maxX - minX || 1;
+    const height = maxY - minY || 1;
+
+    const scale = 0.9 * Math.min(canvas.width / width, canvas.height / height);
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+
+    const fillColor = '#bfe9ff';
+    const strokeColor = showOutline ? '#000000' : fillColor; // kontúr: fekete vagy "eltüntetve"
+
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = strokeColor;
+    ctx.fillStyle = fillColor;
+    ctx.lineWidth = 1.2;
+
+    for (const rect of rects) {
+      if (rect.length < 2) continue;
+      ctx.beginPath();
+      for (let i = 0; i < rect.length; i++) {
+        const x = rect[i][0];
+        const y = rect[i][1];
+
+        const sx = canvas.width / 2 + (x - cx) * scale;
+        const sy = canvas.height / 2 - (y - cy) * scale;
+
+        if (i === 0) ctx.moveTo(sx, sy);
+        else ctx.lineTo(sx, sy);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+  }
+
+  function recomputeAndRedraw() {
+    updateGeometry();
+    redraw();
+  }
+
+  // --- Skálázás DXF-hez ---
+
+  function getScaledRects() {
+    if (!currentModel) return null;
+    const { rects, minX, maxX, minY, maxY } = currentModel;
+    if (!rects.length) return null;
+
+    const width = maxX - minX || 1;
+    const height = maxY - minY || 1;
+    const size = Math.max(width, height) || 1;
+    const scale = DXF_TARGET_SIZE / size;
+
+    const scaledRects = rects.map(rect =>
+      rect.map(([x,y]) => [ (x - minX) * scale, (y - minY) * scale ])
+    );
+
+    return { scaledRects };
+  }
+
+  function downloadDXF(dxfString, filename) {
+    if (!dxfString) return;
+    const blob = new Blob([dxfString], { type: 'application/dxf' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename.endsWith('.dxf') ? filename : (filename + '.dxf');
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  // --- DXF: téglalapok SOLID entitásokkal (2D felületek) ---
+  // Csúcssorrend: v1 = p1, v2 = p2, v3 = p4, v4 = p3 (nem masni).
+
+  function exportDXFRectanglesSolid() {
+    const scaled = getScaledRects();
+    if (!scaled) {
+      alert('Nincs exportálható téglalap (a min. vastagság szűrés esetleg mindent eltüntetett).');
+      return;
+    }
+    const { scaledRects } = scaled;
+
+    let dxf = '';
+    const NL = '\r\n';
+    function add(code, value) {
+      dxf += code + NL + value + NL;
+    }
+
+    // HEADER
+    add(0, 'SECTION');
+    add(2, 'HEADER');
+    add(0, 'ENDSEC');
+
+    // ENTITIES
+    add(0, 'SECTION');
+    add(2, 'ENTITIES');
+
+    for (const rect of scaledRects) {
+      if (rect.length < 4) continue;
+
+      const p1 = rect[0];
+      const p2 = rect[1];
+      const p3 = rect[2];
+      const p4 = rect[3];
+
+      const v1 = p1;
+      const v2 = p2;
+      const v3 = p4;
+      const v4 = p3;
+
+      add(0, 'SOLID');
+      add(8, '0'); // layer
+
+      add(10, v1[0].toFixed(4));
+      add(20, v1[1].toFixed(4));
+      add(30, '0.0');
+
+      add(11, v2[0].toFixed(4));
+      add(21, v2[1].toFixed(4));
+      add(31, '0.0');
+
+      add(12, v3[0].toFixed(4));
+      add(22, v3[1].toFixed(4));
+      add(32, '0.0');
+
+      add(13, v4[0].toFixed(4));
+      add(23, v4[1].toFixed(4));
+      add(33, '0.0');
+    }
+
+    add(0, 'ENDSEC');
+    add(0, 'EOF');
+
+    // Fájlnév: PEHELY-aa-bb-cc-dd-ee-ff-Y/N
+    const p = getParams();
+    const aa = Math.round(p.branchAngleDeg);         // Szög
+    const bb = Math.round(p.rectAspectPercent);      // Vastagság
+    const cc = Math.round(p.spacingPercent);         // Köz
+    const dd = Math.round(p.reductionPercent);       // Méretcsökkenés
+    const ee = p.armCount;                           // Karok száma
+    const ff = p.minRectMm.toFixed(1);               // Min. vastagság (mm, 1 tizedes)
+    const flag = p.growSmallRects ? 'Y' : 'N';       // Kisebbek növelése
+
+    const filename = `PEHELY-${aa}-${bb}-${cc}-${dd}-${ee}-${ff}-${flag}.dxf`;
+
+    downloadDXF(dxf, filename);
+  }
+
+  // --- Véletlen paraméterek (karok száma + minRect + checkbox NEM változik!) ---
+
+  function randomizeParams() {
+    function randInt(min, max) {
+      return Math.round(min + Math.random() * (max - min));
+    }
+
+    const angle = randInt(15, 70);
+    document.getElementById('angleSlider').value = angle;
+    document.getElementById('angleInput').value  = angle;
+
+    const ratio = randInt(8, 30);
+    document.getElementById('ratioSlider').value = ratio;
+    document.getElementById('ratioInput').value  = ratio;
+
+    const spacing = randInt(15, 45);
+    document.getElementById('spacingSlider').value = spacing;
+    document.getElementById('spacingInput').value  = spacing;
+
+    const reduction = randInt(20, 60);
+    document.getElementById('reductionSlider').value = reduction;
+    document.getElementById('reductionInput').value  = reduction;
+
+    // Karok száma, min. vastagság és „Kisebbek növelése” NEM változik
+    recomputeAndRedraw();
+  }
+
+  // --- Kontúr ki/be ---
+
+  function toggleOutline() {
+    showOutline = !showOutline;
+    redraw();
+  }
+
+  // --- Init ---
+
+  window.addEventListener('load', () => {
+    syncInputPair('angleSlider',    'angleInput',    recomputeAndRedraw);
+    syncInputPair('ratioSlider',    'ratioInput',    recomputeAndRedraw);
+    syncInputPair('spacingSlider',  'spacingInput',  recomputeAndRedraw);
+    syncInputPair('reductionSlider','reductionInput',recomputeAndRedraw);
+    syncInputPair('armsSlider',     'armsInput',     recomputeAndRedraw);
+    syncInputPair('minRectSlider',  'minRectInput',  recomputeAndRedraw);
+
+    document.getElementById('growSmallCheckbox')
+      .addEventListener('change', recomputeAndRedraw);
+
+    document.getElementById('randomBtn')
+      .addEventListener('click', randomizeParams);
+    document.getElementById('toggleOutlineBtn')
+      .addEventListener('click', toggleOutline);
+    document.getElementById('exportSolidBtn')
+      .addEventListener('click', exportDXFRectanglesSolid);
+
+    recomputeAndRedraw();  // induláskor kirajzol, alapból kontúr NINCS
+  });
+</script>
+</body>
+</html>
