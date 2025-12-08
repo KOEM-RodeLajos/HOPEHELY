@@ -69,6 +69,12 @@
       width: 4.5rem;
       padding: 0.1rem 0.2rem;
     }
+    .separator {
+      text-align: center;
+      color: #888;
+      font-size: 0.8rem;
+      margin: 0.4rem 0;
+    }
     .buttons {
       display: flex;
       flex-wrap: wrap;
@@ -127,10 +133,10 @@
 
   <div class="container">
     <div class="controls">
-      <h2>Hópehely paraméterei</h2>
+      <h2>Paraméterek</h2>
 
       <div class="control-group">
-        <label for="angleSlider">Ág–törzs szög (°)</label>
+        <label for="angleSlider">Szög (°)</label>
         <div class="control-row">
           <input id="angleSlider" type="range" min="10" max="75" step="1" value="30">
           <input id="angleInput" type="number" min="10" max="75" step="1" value="30">
@@ -138,7 +144,7 @@
       </div>
 
       <div class="control-group">
-        <label for="ratioSlider">Téglalap arány (%): rövid oldal / hosszú oldal</label>
+        <label for="ratioSlider">Vastagság (%)</label>
         <div class="control-row">
           <input id="ratioSlider" type="range" min="5" max="40" step="1" value="20">
           <input id="ratioInput" type="number" min="5" max="40" step="1" value="20">
@@ -146,66 +152,56 @@
       </div>
 
       <div class="control-group">
-        <label for="spacingSlider">Ág/ágacska pozíció lépésköz (%)</label>
+        <label for="spacingSlider">Köz (%)</label>
         <div class="control-row">
           <input id="spacingSlider" type="range" min="10" max="50" step="1" value="30">
           <input id="spacingInput" type="number" min="10" max="50" step="1" value="30">
         </div>
-        <div class="note">
-          A törzsön és az ágakon is így osztunk: k · lépésköz ≤ 100%.
-        </div>
       </div>
 
       <div class="control-group">
-        <label for="reductionSlider">Méretcsökkenés szintenként (%)</label>
+        <label for="reductionSlider">Méretcsökkenés (%)</label>
         <div class="control-row">
           <input id="reductionSlider" type="range" min="0" max="70" step="1" value="40">
           <input id="reductionInput" type="number" min="0" max="70" step="1" value="40">
         </div>
-        <div class="note">
-          0%: nincs csökkenés, 50%: mindegyik következő téglalap fele akkora, mint az előző.
-        </div>
       </div>
 
+      <div class="separator">-------------</div>
+
       <div class="control-group">
-        <label for="armsSlider">Karok száma (fa elforgatások)</label>
+        <label for="armsSlider">Karok száma</label>
         <div class="control-row">
           <input id="armsSlider" type="range" min="3" max="12" step="1" value="6">
           <input id="armsInput" type="number" min="3" max="12" step="1" value="6">
         </div>
       </div>
 
+      <div class="separator">-------------</div>
+
       <div class="control-group">
-        <label for="minRectSlider">Min. téglalap-vastagság (mm)</label>
+        <label for="minRectSlider">Min. vastagság (mm)</label>
         <div class="control-row">
           <input id="minRectSlider" type="range" min="0" max="10" step="0.1" value="0">
           <input id="minRectInput" type="number" min="0" max="10" step="0.1" value="0">
-        </div>
-        <div class="note">
-          Ennél vékonyabb rövid oldalú téglalapokat szűrjük vagy felnagyítjuk (lásd alább).
         </div>
       </div>
 
       <div class="control-group">
         <label>
           <input type="checkbox" id="growSmallCheckbox">
-          Kisebb téglalapok tartása, csak a min. vastagságig növelve
+          Kisebbek növelése
         </label>
-        <div class="note">
-          • Nincs bejelölve: a min. vastagságnál vékonyabb téglalapok eltűnnek.<br>
-          • Bejelölve: megmaradnak, de csak a rövidebb oldalukat húzzuk ki a min. vastagságig.
-        </div>
       </div>
 
       <div class="buttons">
         <button id="randomBtn" class="secondary">Véletlen paraméterek</button>
         <button id="toggleOutlineBtn" class="secondary">Kontúr ki/be</button>
-        <button id="exportSolidBtn" class="primary">DXF – téglalapok (SOLID)</button>
+        <button id="exportSolidBtn" class="primary">Mentés (DXF)</button>
       </div>
 
       <div class="note">
-        A DXF-ben a hópehely befoglaló dobozának nagyobbik mérete ≈ 100 mm.  
-        A min. vastagság szűrés és a felnagyítás is ehhez a skálához igazodik.
+        A DXF-ben a hópehely befoglaló dobozának nagyobbik mérete ≈ 100 mm.
       </div>
     </div>
 
@@ -219,7 +215,7 @@
   // --- Globális állapot ---
   let currentModel = null; // { rects: [ [ [x,y]... ] ], minX, maxX, minY, maxY }
   const DXF_TARGET_SIZE = 100.0; // a DXF-ben a teljes hópehely max. kiterjedése (mm)
-  let showOutline = true;  // kontúr ki/be
+  let showOutline = false;  // alapból KIKAPCSOLT kontúr
 
   // --- Paraméterkezelés ---
 
@@ -246,13 +242,13 @@
 
   function getParams() {
     return {
-      branchAngleDeg: parseFloat(document.getElementById('angleSlider').value) || 30,
-      rectAspectPercent: parseFloat(document.getElementById('ratioSlider').value) || 20,
-      spacingPercent: parseFloat(document.getElementById('spacingSlider').value) || 30,
-      reductionPercent: parseFloat(document.getElementById('reductionSlider').value) || 40,
-      armCount: parseInt(document.getElementById('armsSlider').value, 10) || 6,
-      minRectMm: parseFloat(document.getElementById('minRectSlider').value) || 0,
-      growSmallRects: document.getElementById('growSmallCheckbox').checked
+      branchAngleDeg: parseFloat(document.getElementById('angleSlider').value) || 30,   // Szög
+      rectAspectPercent: parseFloat(document.getElementById('ratioSlider').value) || 20, // Vastagság
+      spacingPercent: parseFloat(document.getElementById('spacingSlider').value) || 30,  // Köz
+      reductionPercent: parseFloat(document.getElementById('reductionSlider').value) || 40, // Méretcsökkenés
+      armCount: parseInt(document.getElementById('armsSlider').value, 10) || 6,          // Karok száma
+      minRectMm: parseFloat(document.getElementById('minRectSlider').value) || 0,        // Min. vastagság
+      growSmallRects: document.getElementById('growSmallCheckbox').checked               // Kisebbek növelése
     };
   }
 
@@ -384,7 +380,7 @@
     const len01 = dist(p0, p1);
     const len12 = dist(p1, p2);
 
-    // widthEdge: az a rövidebb él (páros szomszéd)
+    // widthEdge: a rövidebb él (páros szomszéd)
     let widthEdgeA, widthEdgeB, widthLen;
     if (len01 <= len12) {
       widthEdgeA = p0;
@@ -409,9 +405,11 @@
       return null;
     }
 
+    // szélesség irány egységvektor
     const wx = dxW / lenW;
     const wy = dyW / lenW;
 
+    // téglalap közepe
     const cx = (p0[0] + p1[0] + p2[0] + p3[0]) / 4;
     const cy = (p0[1] + p1[1] + p2[1] + p3[1]) / 4;
 
@@ -422,14 +420,13 @@
     for (let i = 0; i < 4; i++) {
       const vx = pts[i][0] - cx;
       const vy = pts[i][1] - cy;
-      const t = vx*wx + vy*wy;
+      const t = vx*wx + vy*wy;  // vetület a szélesség irányra
       ts[i] = t;
       const at = Math.abs(t);
       if (at > maxAbsT) maxAbsT = at;
     }
 
     if (maxAbsT < 1e-9) {
-      // minden pont a középen? Furcsa, de inkább nem növeljük.
       return null;
     }
 
@@ -448,7 +445,7 @@
       const wxComp = wx * t;
       const wyComp = wy * t;
 
-      // merőleges komponens (hossz irány)
+      // merőleges komponens
       const perpX = vx - wxComp;
       const perpY = vy - wyComp;
 
@@ -518,7 +515,6 @@
       let r = rect;
 
       if (minWidthModel > 0) {
-        // rövid oldal aktuális hossza (a 4 él közül a legrövidebb)
         const p0 = r[0];
         const p1 = r[1];
         const p2 = r[2];
@@ -545,7 +541,7 @@
             // csak a rövid oldalt növeljük fel
             const grown = growRectShortSide(r, minWidthModel);
             if (!grown) {
-              continue; // ha valamiért nem sikerült, inkább eldobjuk
+              continue;
             }
             r = grown;
           }
@@ -593,7 +589,7 @@
     const cy = (minY + maxY) / 2;
 
     const fillColor = '#bfe9ff';
-    const strokeColor = showOutline ? '#ffffff' : fillColor; // kontúr ki/be
+    const strokeColor = showOutline ? '#000000' : fillColor; // kontúr: fekete vagy "eltüntetve"
 
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
@@ -641,17 +637,16 @@
       rect.map(([x,y]) => [ (x - minX) * scale, (y - minY) * scale ])
     );
 
-    return { scaledRects, scale, minX, minY };
+    return { scaledRects };
   }
 
-  function downloadDXF(dxfString, filenamePrefix) {
+  function downloadDXF(dxfString, filename) {
     if (!dxfString) return;
     const blob = new Blob([dxfString], { type: 'application/dxf' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    const ts = new Date().toISOString().replace(/[:.]/g, '-');
     a.href = url;
-    a.download = filenamePrefix + '_' + ts + '.dxf';
+    a.download = filename.endsWith('.dxf') ? filename : (filename + '.dxf');
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -720,7 +715,19 @@
     add(0, 'ENDSEC');
     add(0, 'EOF');
 
-    downloadDXF(dxf, 'hopehely_teglalapok_SOLID');
+    // Fájlnév: PEHELY-aa-bb-cc-dd-ee-ff-Y/N
+    const p = getParams();
+    const aa = Math.round(p.branchAngleDeg);         // Szög
+    const bb = Math.round(p.rectAspectPercent);      // Vastagság
+    const cc = Math.round(p.spacingPercent);         // Köz
+    const dd = Math.round(p.reductionPercent);       // Méretcsökkenés
+    const ee = p.armCount;                           // Karok száma
+    const ff = p.minRectMm.toFixed(1);               // Min. vastagság (mm, 1 tizedes)
+    const flag = p.growSmallRects ? 'Y' : 'N';       // Kisebbek növelése
+
+    const filename = `PEHELY-${aa}-${bb}-${cc}-${dd}-${ee}-${ff}-${flag}.dxf`;
+
+    downloadDXF(dxf, filename);
   }
 
   // --- Véletlen paraméterek (karok száma + minRect + checkbox NEM változik!) ---
@@ -746,7 +753,7 @@
     document.getElementById('reductionSlider').value = reduction;
     document.getElementById('reductionInput').value  = reduction;
 
-    // Karok száma, minRect és a jelölőnégyzet NEM változik
+    // Karok száma, min. vastagság és „Kisebbek növelése” NEM változik
     recomputeAndRedraw();
   }
 
@@ -777,7 +784,7 @@
     document.getElementById('exportSolidBtn')
       .addEventListener('click', exportDXFRectanglesSolid);
 
-    recomputeAndRedraw();
+    recomputeAndRedraw();  // induláskor kirajzol, alapból kontúr NINCS
   });
 </script>
 </body>
