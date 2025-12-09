@@ -61,6 +61,7 @@
       display: flex;
       align-items: center;
       gap: 0.5rem;
+      flex-wrap: wrap;
     }
     .control-row input[type="range"] {
       flex: 1;
@@ -69,16 +70,22 @@
       width: 4.5rem;
       padding: 0.1rem 0.2rem;
     }
+    .control-row .chk-label {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+      font-size: 0.85rem;
+      white-space: nowrap;
+    }
     select {
       width: 100%;
       padding: 0.15rem 0.2rem;
       font-size: 0.85rem;
     }
-    .separator {
-      text-align: center;
-      color: #888;
-      font-size: 0.8rem;
-      margin: 0.4rem 0;
+    hr.separator {
+      border: 0;
+      border-top: 1px solid #ddd;
+      margin: 0.6rem 0;
     }
     .buttons {
       display: flex;
@@ -134,7 +141,7 @@
 </head>
 <body>
 <div class="page">
-  <h1>Rodé Lajos - Hópehely generátor</h1>
+  <h1>Rodé Lajos - Hópehely generátor v13</h1>
 
   <div class="container">
     <div class="controls">
@@ -172,6 +179,8 @@
         </div>
       </div>
 
+      <hr class="separator">
+
       <div class="control-group">
         <label for="tipStyleSelect">Végforma</label>
         <select id="tipStyleSelect">
@@ -183,7 +192,32 @@
         </select>
       </div>
 
-      <div class="separator">-------------</div>
+      <div class="control-group">
+        <label for="tipScaleSlider">Végforma méret</label>
+        <div class="control-row">
+          <input id="tipScaleSlider" type="range" min="0.2" max="5" step="0.05" value="1">
+          <input id="tipScaleInput" type="number" min="0.2" max="5" step="0.05" value="1">
+        </div>
+      </div>
+
+      <div class="control-group">
+        <div class="control-row">
+          <label class="chk-label">
+            <input type="checkbox" id="tipOnlyCheckbox">
+            Csak végforma
+          </label>
+          <label class="chk-label">
+            <input type="checkbox" id="tipCenterCheckbox">
+            Közép
+          </label>
+          <label class="chk-label">
+            <input type="checkbox" id="showTrunkCheckbox" checked>
+            Törzs
+          </label>
+        </div>
+      </div>
+
+      <hr class="separator">
 
       <div class="control-group">
         <label for="armsSlider">Karok száma</label>
@@ -193,7 +227,7 @@
         </div>
       </div>
 
-      <div class="separator">-------------</div>
+      <hr class="separator">
 
       <div class="control-group">
         <label for="minRectSlider">Min. vastagság (mm)</label>
@@ -205,7 +239,7 @@
 
       <div class="control-group">
         <label>
-          <input type="checkbox" id="growSmallCheckbox">
+          <input type="checkbox" id="growSmallCheckbox" checked>
           Kisebbek növelése
         </label>
       </div>
@@ -265,8 +299,12 @@
     const minRectVal   = parseFloat(document.getElementById('minRectSlider').value);
     const growCheckbox = document.getElementById('growSmallCheckbox').checked;
     const tipStyleVal  = document.getElementById('tipStyleSelect').value;
+    const tipScaleVal  = parseFloat(document.getElementById('tipScaleSlider').value);
+    const tipOnlyVal   = document.getElementById('tipOnlyCheckbox').checked;
+    const tipCenterVal = document.getElementById('tipCenterCheckbox').checked;
+    const showTrunkVal = document.getElementById('showTrunkCheckbox').checked;
 
-    // 0=egyenes, 1=háromszög (sátor), 2=Y, 3=hatszög, 4=trapéz
+    // 0=egyenes, 1=háromszög, 2=Y, 3=hatszög, 4=trapéz
     let tipMode = 0;
     if (tipStyleVal === 'tent') tipMode = 1;
     else if (tipStyleVal === 'Y') tipMode = 2;
@@ -278,10 +316,14 @@
       rectAspectPercent: Number.isFinite(ratioVal)   ? ratioVal   : 20,
       spacingPercent:    Number.isFinite(spacingVal) ? spacingVal : 30,
       reductionPercent:  Number.isFinite(redVal)     ? redVal     : 40,
+      tipMode:           tipMode,
+      tipScale:          Number.isFinite(tipScaleVal) ? tipScaleVal : 1,
+      tipOnly:           tipOnlyVal,
+      tipAtCenter:       tipCenterVal,
+      showTrunk:         showTrunkVal,
       armCount:          Number.isFinite(armsVal)    ? armsVal    : 6,
       minRectMm:         Number.isFinite(minRectVal) ? minRectVal : 0,
-      growSmallRects:    growCheckbox,
-      tipMode:           tipMode
+      growSmallRects:    growCheckbox
     };
   }
 
@@ -305,6 +347,28 @@
     return [p1, p2, p3, p4, p1.slice()]; // zárt gyűrű
   }
 
+  // --- Segéd: poligon skálázása a saját középpontjából ---
+
+  function scalePolygon(poly, scale) {
+    if (!poly || poly.length < 2 || scale === 1) return poly;
+    const unique = poly.slice(0, poly.length - 1);
+    if (!unique.length) return poly;
+
+    let cx = 0, cy = 0;
+    for (const [x, y] of unique) {
+      cx += x; cy += y;
+    }
+    cx /= unique.length;
+    cy /= unique.length;
+
+    const scaled = unique.map(([x, y]) => [
+      cx + (x - cx) * scale,
+      cy + (y - cy) * scale
+    ]);
+    scaled.push(scaled[0].slice());
+    return scaled;
+  }
+
   // --- Egy fa (egy kar) szegmensei ---
 
   function buildSingleTreeSegments(params) {
@@ -319,6 +383,7 @@
     const angleOffset = params.branchAngleDeg * Math.PI / 180.0;
     const reduction = Math.max(0, Math.min(0.95, params.reductionPercent / 100.0));
     const tipMode = params.tipMode;
+    const tipScale = Number.isFinite(params.tipScale) ? params.tipScale : 1;
 
     // törzs
     segments.push({
@@ -326,7 +391,9 @@
       length: trunkLength,
       width: trunkWidth,
       angle: trunkAngle,
-      tipMode
+      tipMode,
+      tipScale,
+      isTrunk: true
     });
 
     const count = Math.floor(100 / spacing);
@@ -357,7 +424,9 @@
           length: branchLength,
           width: branchWidth,
           angle: branchAngle,
-          tipMode
+          tipMode,
+          tipScale,
+          isTrunk: false
         });
 
         const dBranch = { x: Math.cos(branchAngle), y: Math.sin(branchAngle) };
@@ -385,7 +454,9 @@
               length: twigLength,
               width: twigWidth,
               angle: twigAngle,
-              tipMode
+              tipMode,
+              tipScale,
+              isTrunk: false
             });
           }
         }
@@ -419,133 +490,221 @@
           length: s.length,
           width: s.width,
           angle: s.angle + phi,
-          tipMode: s.tipMode
+          tipMode: s.tipMode,
+          tipScale: s.tipScale,
+          isTrunk: s.isTrunk
         });
       }
     }
     return all;
   }
 
+  // --- Segéd: tip-poligonok a különböző végformákhoz ---
+
+  function buildTentHexFromEdge(p1, p2, dir, tipScale) {
+    const dxB = p2[0] - p1[0];
+    const dyB = p2[1] - p1[1];
+    const b = Math.hypot(dxB, dyB);
+    if (b <= 1e-9) return null;
+
+    const baseDir = { x: dxB / b, y: dyB / b };
+    const sqrt3 = Math.sqrt(3);
+    const h = b / (2 * sqrt3);
+    const midX = (p1[0] + p2[0]) * 0.5;
+    const midY = (p1[1] + p2[1]) * 0.5;
+    const apexX = midX + dir.x * h;
+    const apexY = midY + dir.y * h;
+
+    const A = p1;
+    const B = p2;
+    const C = [apexX, apexY];
+
+    const v = { x: C[0] - A[0], y: C[1] - A[1] };
+    const dot = v.x * baseDir.x + v.y * baseDir.y;
+    const v_par = { x: baseDir.x * dot, y: baseDir.y * dot };
+    const v_perp = { x: v.x - v_par.x, y: v.y - v_par.y };
+    const C_ref = [ C[0] - 2 * v_perp.x, C[1] - 2 * v_perp.y ];
+
+    const sLen = Math.hypot(C[0] - A[0], C[1] - A[1]);
+    const t = { x: -dir.x * sLen, y: -dir.y * sLen };
+
+    const A2 = [ A[0] + t.x, A[1] + t.y ];
+    const B2 = [ B[0] + t.x, B[1] + t.y ];
+    const C2 = [ C_ref[0] + t.x, C_ref[1] + t.y ];
+
+    const pts = [A, B, C, A2, B2, C2].map(p => [p[0], p[1]]);
+
+    let cx = 0, cy = 0;
+    for (const [x, y] of pts) {
+      cx += x; cy += y;
+    }
+    cx /= pts.length;
+    cy /= pts.length;
+
+    pts.sort((p, q) => {
+      const angP = Math.atan2(p[1] - cy, p[0] - cx);
+      const angQ = Math.atan2(q[1] - cy, q[0] - cx);
+      return angP - angQ;
+    });
+
+    const hexPoly = pts.slice();
+    hexPoly.push(pts[0].slice());
+    return scalePolygon(hexPoly, tipScale);
+  }
+
+  function buildRegularHexFromEdge(p1, p2, dir, tipScale) {
+    const dxB = p2[0] - p1[0];
+    const dyB = p2[1] - p1[1];
+    const b = Math.hypot(dxB, dyB);
+    if (b <= 1e-9) return null;
+
+    const wdir = { x: dxB / b, y: dyB / b };
+    const midX = (p1[0] + p2[0]) * 0.5;
+    const midY = (p1[1] + p2[1]) * 0.5;
+    const sqrt3 = Math.sqrt(3);
+
+    const local = [
+      [-b/2, 0],
+      [ b/2, 0],
+      [ b,   (sqrt3/2)*b ],
+      [ b/2,  sqrt3*b    ],
+      [-b/2,  sqrt3*b    ],
+      [-b,   (sqrt3/2)*b ]
+    ];
+
+    function toWorld(X, Y) {
+      return [
+        midX + X * wdir.x + Y * dir.x,
+        midY + X * wdir.y + Y * dir.y
+      ];
+    }
+
+    const hexPoly = local.map(([X,Y]) => toWorld(X,Y));
+    hexPoly.push(hexPoly[0].slice());
+    return scalePolygon(hexPoly, tipScale);
+  }
+
+  function buildTrapHexFromEdge(p1, p2, dir, tipScale) {
+    const dxB = p2[0] - p1[0];
+    const dyB = p2[1] - p1[1];
+    const b = Math.hypot(dxB, dyB);
+    if (b <= 1e-9) return null;
+
+    const wdir = { x: dxB / b, y: dyB / b };
+    const midX = (p1[0] + p2[0]) * 0.5;
+    const midY = (p1[1] + p2[1]) * 0.5;
+    const sqrt3 = Math.sqrt(3);
+
+    const h = (sqrt3 / 4) * b;
+    const halfTop = b / 4;
+
+    const local = [
+      [ b/2,     0   ], // BR
+      [ halfTop, h   ], // OR
+      [-halfTop, h   ], // OL
+      [-b/2,     0   ], // BL
+      [-halfTop,-h   ], // IL
+      [ halfTop,-h   ]  // IR
+    ];
+
+    function toWorld(X, Y) {
+      return [
+        midX + X * wdir.x + Y * dir.x,
+        midY + X * wdir.y + Y * dir.y
+      ];
+    }
+
+    const hexTrapPoly = local.map(([X,Y]) => toWorld(X,Y));
+    hexTrapPoly.push(hexTrapPoly[0].slice());
+    return scalePolygon(hexTrapPoly, tipScale);
+  }
+
   // Szegmens -> poligonok (téglalap + végforma)
-  function segmentToPolys(seg) {
+  function segmentToPolys(seg, params) {
     const polys = [];
     const mainRect = makeRectFromBase(seg.bx, seg.by, seg.length, seg.width, seg.angle);
-    polys.push(mainRect); // téglalap
 
-    const tipMode = seg.tipMode;
+    const tipMode     = seg.tipMode;
+    const tipScale    = (typeof seg.tipScale === 'number' && isFinite(seg.tipScale)) ? seg.tipScale : 1;
+    const onlyTips    = !!params.tipOnly;
+    const addBaseTips = !!params.tipAtCenter && !!seg.isTrunk;
+    const showTrunk   = !!params.showTrunk;
+
+    // Törzs mindig rajzolódik, ha showTrunk=true, függetlenül a "Csak végforma"-tól.
+    if (seg.isTrunk) {
+      if (showTrunk) {
+        polys.push(mainRect);
+      }
+    } else {
+      // Ágak/ágacskák esetén a "Csak végforma" szűr.
+      if (!onlyTips) {
+        polys.push(mainRect);
+      }
+    }
+
     if (tipMode === 0) return polys;
 
-    // szegmens iránya
     const d = { x: Math.cos(seg.angle), y: Math.sin(seg.angle) };
-    const tipBaseX = seg.bx + d.x * seg.length;
-    const tipBaseY = seg.by + d.y * seg.length;
 
+    // Y végforma
     if (tipMode === 2) {
-      // Y vég: két kis ág ±60°
-      const capLength = seg.length * 0.3;
-      const capWidth  = seg.width;
-      const deltas = [Math.PI / 3, -Math.PI / 3];
-      for (const delta of deltas) {
-        const tipAngle = seg.angle + delta;
-        polys.push(makeRectFromBase(tipBaseX, tipBaseY, capLength, capWidth, tipAngle));
+      function addYAt(baseX, baseY, mainAngle) {
+        const capLength = seg.length * 0.3 * tipScale;
+        const capWidth  = seg.width;
+        const deltas = [Math.PI / 3, -Math.PI / 3];
+        for (const delta of deltas) {
+          const tipAngle = mainAngle + delta;
+          polys.push(makeRectFromBase(baseX, baseY, capLength, capWidth, tipAngle));
+        }
       }
-    } else if (tipMode === 1) {
-      // Háromszög (korábbi sátor, 120°-os csúcs)
-      const p1 = mainRect[0]; // távoli bal
-      const p2 = mainRect[1]; // távoli jobb
-      const dxB = p2[0] - p1[0];
-      const dyB = p2[1] - p1[1];
-      const b = Math.hypot(dxB, dyB);
-      if (b > 1e-9) {
-        const h = b / (2 * Math.sqrt(3));
-        const midX = (p1[0] + p2[0]) * 0.5;
-        const midY = (p1[1] + p2[1]) * 0.5;
-        const apexX = midX + d.x * h;
-        const apexY = midY + d.y * h;
-        const tri = [
-          [p1[0], p1[1]],
-          [p2[0], p2[1]],
-          [apexX, apexY],
-          [p1[0], p1[1]]
-        ];
-        polys.push(tri);
+
+      const tipBaseX = seg.bx + d.x * seg.length;
+      const tipBaseY = seg.by + d.y * seg.length;
+      addYAt(tipBaseX, tipBaseY, seg.angle);
+
+      if (addBaseTips) {
+        addYAt(seg.bx, seg.by, seg.angle + Math.PI);
+      }
+
+      return polys;
+    }
+
+    // poligonvégformák
+    const p1_far = mainRect[0];
+    const p2_far = mainRect[1];
+    const p1_near = mainRect[3];
+    const p2_near = mainRect[2];
+
+    const dTop  = d;
+    const dBase = { x: -d.x, y: -d.y };
+
+    if (tipMode === 1) {
+      const hexTop = buildTentHexFromEdge(p1_far,  p2_far,  dTop,  tipScale);
+      if (hexTop) polys.push(hexTop);
+      if (addBaseTips) {
+        const hexBase = buildTentHexFromEdge(p1_near, p2_near, dBase, tipScale);
+        if (hexBase) polys.push(hexBase);
       }
     } else if (tipMode === 3) {
-      // Hatszög: szabályos, a távoli él az egyik oldala
-      const p1 = mainRect[0];
-      const p2 = mainRect[1];
-      const dxB = p2[0] - p1[0];
-      const dyB = p2[1] - p1[1];
-      const b = Math.hypot(dxB, dyB);
-      if (b > 1e-9) {
-        const wdir = { x: dxB / b, y: dyB / b }; // p1->p2
-        const midX = (p1[0] + p2[0]) * 0.5;
-        const midY = (p1[1] + p2[1]) * 0.5;
-        const sqrt3 = Math.sqrt(3);
-
-        // Szabályos hatszög lokális koordinátái
-        const local = [
-          [-b/2, 0],
-          [ b/2, 0],
-          [ b,   (sqrt3/2)*b ],
-          [ b/2, sqrt3*b ],
-          [-b/2, sqrt3*b ],
-          [-b,   (sqrt3/2)*b ]
-        ];
-
-        function toWorld(X, Y) {
-          return [
-            midX + X * wdir.x + Y * d.x,
-            midY + X * wdir.y + Y * d.y
-          ];
-        }
-
-        const hexPoly = local.map(([X,Y]) => toWorld(X,Y));
-        hexPoly.push(hexPoly[0].slice());
-        polys.push(hexPoly);
+      const hexTop = buildRegularHexFromEdge(p1_far,  p2_far,  dTop,  tipScale);
+      if (hexTop) polys.push(hexTop);
+      if (addBaseTips) {
+        const hexBase = buildRegularHexFromEdge(p1_near, p2_near, dBase, tipScale);
+        if (hexBase) polys.push(hexBase);
       }
     } else if (tipMode === 4) {
-      // Trapéz: hosszú alap = b, rövid alap = b/2, oldalak = b/2 (fél szabályos hatszög)
-      const p1 = mainRect[0]; // távoli bal
-      const p2 = mainRect[1]; // távoli jobb
-      const dxB = p2[0] - p1[0];
-      const dyB = p2[1] - p1[1];
-      const b = Math.hypot(dxB, dyB);
-      if (b > 1e-9) {
-        const wdir = { x: dxB / b, y: dyB / b }; // p1->p2
-        const midX = (p1[0] + p2[0]) * 0.5;
-        const midY = (p1[1] + p2[1]) * 0.5;
-        const sqrt3 = Math.sqrt(3);
-
-        // h = (√3/4)*b, felső alap hossza = b/2, középen
-        const h = (sqrt3 / 4) * b;
-        const halfTop = b / 4;
-
-        // Lokális pontok: (-b/2,0), (b/2,0), (b/4,h), (-b/4,h)
-        const local = [
-          [-b/2, 0],
-          [ b/2, 0],
-          [ halfTop, h],
-          [-halfTop, h]
-        ];
-
-        function toWorld(X, Y) {
-          return [
-            midX + X * wdir.x + Y * d.x,
-            midY + X * wdir.y + Y * d.y
-          ];
-        }
-
-        const trapPoly = local.map(([X,Y]) => toWorld(X,Y));
-        trapPoly.push(trapPoly[0].slice());
-        polys.push(trapPoly);
+      const hexTop = buildTrapHexFromEdge(p1_far,  p2_far,  dTop,  tipScale);
+      if (hexTop) polys.push(hexTop);
+      if (addBaseTips) {
+        const hexBase = buildTrapHexFromEdge(p1_near, p2_near, dBase, tipScale);
+        if (hexBase) polys.push(hexBase);
       }
     }
 
     return polys;
   }
 
-  // --- Geometria frissítése: szegmensek + min. vastagság ---
+  // --- Geometria frissítése ---
 
   function updateGeometry() {
     const params = getParams();
@@ -556,12 +715,11 @@
       return;
     }
 
-    // 1) Első közelítő bbox
     let minX0 = Infinity, maxX0 = -Infinity;
     let minY0 = Infinity, maxY0 = -Infinity;
 
     for (const seg of segments) {
-      const polys = segmentToPolys(seg);
+      const polys = segmentToPolys(seg, params);
       for (const poly of polys) {
         for (const [x,y] of poly) {
           if (x < minX0) minX0 = x;
@@ -581,7 +739,6 @@
     const growSmall = params.growSmallRects;
     const minWidthModel = minRectMm > 0 ? (minRectMm / scaleModelToMm) : 0;
 
-    // 2) Szegmensek szélesség-korrekció
     const adjustedSegments = [];
     for (const seg of segments) {
       if (minWidthModel <= 0) {
@@ -607,13 +764,12 @@
       return;
     }
 
-    // 3) Poligonok + végső bbox
     const rects = [];
     let minX = Infinity, maxX = -Infinity;
     let minY = Infinity, maxY = -Infinity;
 
     for (const seg of adjustedSegments) {
-      const polys = segmentToPolys(seg);
+      const polys = segmentToPolys(seg, params);
       for (const poly of polys) {
         rects.push(poly);
         for (const [x,y] of poly) {
@@ -712,7 +868,7 @@
     URL.revokeObjectURL(url);
   }
 
-  // --- DXF: poligonok háromszögekre bontva SOLID-ként ---
+  // --- DXF export (SOLID háromszögek) ---
 
   function exportDXFRectanglesSolid() {
     const scaled = getScaledPolys();
@@ -736,7 +892,7 @@
     add(2, 'ENTITIES');
 
     for (const poly of scaledPolys) {
-      if (poly.length < 4) continue; // legalább 3 egyedi pont + zárás
+      if (poly.length < 4) continue;
 
       const unique = poly.slice(0, poly.length - 1);
       const n = unique.length;
@@ -744,7 +900,6 @@
 
       const v0 = unique[0];
 
-      // Háromszög-fan: (v0, v_i, v_{i+1})
       for (let i = 1; i < n - 1; i++) {
         const v1 = unique[i];
         const v2 = unique[i+1];
@@ -764,7 +919,6 @@
         add(22, v2[1].toFixed(4));
         add(32, '0.0');
 
-        // háromszög: 3. és 4. pont azonos
         add(13, v2[0].toFixed(4));
         add(23, v2[1].toFixed(4));
         add(33, '0.0');
@@ -774,16 +928,35 @@
     add(0, 'ENDSEC');
     add(0, 'EOF');
 
+    // Fájlnév: paraméterek képernyős sorrendben
     const p = getParams();
-    const aa = Math.round(p.branchAngleDeg);
-    const bb = Math.round(p.rectAspectPercent);
-    const cc = Math.round(p.spacingPercent);
-    const dd = Math.round(p.reductionPercent);
-    const ee = p.armCount;
-    const ff = p.minRectMm.toFixed(1);
-    const flag = p.growSmallRects ? 'Y' : 'N';
+    const angle  = Math.round(p.branchAngleDeg);
+    const ratio  = Math.round(p.rectAspectPercent);
+    const space  = Math.round(p.spacingPercent);
+    const red    = Math.round(p.reductionPercent);
 
-    const filename = `PEHELY-${aa}-${bb}-${cc}-${dd}-${ee}-${ff}-${flag}.dxf`;
+    // tip kód: 0S, 3S, 4S, 6S, YY
+    let tipCode = '0S';
+    if      (p.tipMode === 1) tipCode = '3S';
+    else if (p.tipMode === 2) tipCode = 'YY';
+    else if (p.tipMode === 3) tipCode = '6S';
+    else if (p.tipMode === 4) tipCode = '4S';
+
+    const tipScaleStr   = p.tipScale.toFixed(2);
+    const tipOnlyFlag   = p.tipOnly     ? 'Y' : 'N';
+    const tipCenterFlag = p.tipAtCenter ? 'Y' : 'N';
+    const trunkFlag     = p.showTrunk   ? 'Y' : 'N';
+    const arms          = p.armCount;
+    const minRectStr    = p.minRectMm.toFixed(1);
+    const growFlag      = p.growSmallRects ? 'Y' : 'N';
+
+    const filename =
+      `PEHELY-` +
+      `${angle}-${ratio}-${space}-${red}-` +
+      `${tipCode}-${tipScaleStr}-` +
+      `${tipOnlyFlag}-${tipCenterFlag}-${trunkFlag}-` +
+      `${arms}-${minRectStr}-${growFlag}.dxf`;
+
     downloadDXF(dxf, filename);
   }
 
@@ -794,23 +967,35 @@
       return Math.round(min + Math.random() * (max - min));
     }
 
-    const angle = randInt(15, 120);
+    // Szög (10–90 között)
+    const angle = randInt(10, 90);
     document.getElementById('angleSlider').value = angle;
     document.getElementById('angleInput').value  = angle;
 
+    // Vastagság
     const ratio = randInt(8, 30);
     document.getElementById('ratioSlider').value = ratio;
     document.getElementById('ratioInput').value  = ratio;
 
+    // Köz
     const spacing = randInt(15, 45);
     document.getElementById('spacingSlider').value = spacing;
     document.getElementById('spacingInput').value  = spacing;
 
+    // Méretcsökkenés
     const reduction = randInt(20, 60);
     document.getElementById('reductionSlider').value = reduction;
     document.getElementById('reductionInput').value  = reduction;
 
-    // Karok száma, Min. vastagság, Kisebbek növelése, végforma NEM változik
+    // Végforma
+    const tipOptions = ['straight', 'tent', 'trap', 'hex', 'Y'];
+    const idx = randInt(0, tipOptions.length - 1);
+    document.getElementById('tipStyleSelect').value = tipOptions[idx];
+
+    // Közép
+    document.getElementById('tipCenterCheckbox').checked = (Math.random() < 0.5);
+
+    // Minden más változatlan
     recomputeAndRedraw();
   }
 
@@ -830,10 +1015,17 @@
     syncInputPair('reductionSlider','reductionInput',recomputeAndRedraw);
     syncInputPair('armsSlider',     'armsInput',     recomputeAndRedraw);
     syncInputPair('minRectSlider',  'minRectInput',  recomputeAndRedraw);
+    syncInputPair('tipScaleSlider', 'tipScaleInput', recomputeAndRedraw);
 
     document.getElementById('growSmallCheckbox')
       .addEventListener('change', recomputeAndRedraw);
     document.getElementById('tipStyleSelect')
+      .addEventListener('change', recomputeAndRedraw);
+    document.getElementById('tipOnlyCheckbox')
+      .addEventListener('change', recomputeAndRedraw);
+    document.getElementById('tipCenterCheckbox')
+      .addEventListener('change', recomputeAndRedraw);
+    document.getElementById('showTrunkCheckbox')
       .addEventListener('change', recomputeAndRedraw);
 
     document.getElementById('randomBtn')
