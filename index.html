@@ -28,13 +28,15 @@
       margin: 0 auto;
       padding: 1rem;
     }
+
+    /* Alapértelmezés: mobil / keskeny – vezérlők felül, két oszlopban, alatta a vászon */
     .container {
       display: flex;
+      flex-direction: column;
       gap: 1rem;
       align-items: stretch;
     }
     .controls {
-      flex: 0 0 360px;
       max-width: 100%;
       background: #fff;
       border-radius: 8px;
@@ -43,9 +45,18 @@
     }
     .controls-inner {
       display: flex;
-      flex-direction: column;
+      flex-direction: row;   /* mobilon két oszlop egymás mellett */
       gap: 0.8rem;
+      flex-wrap: wrap;
     }
+    .controls-col {
+      flex: 1 1 160px;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+    }
+
     .canvas-container {
       flex: 1;
       background: #001633;
@@ -57,9 +68,7 @@
       justify-content: center;
       min-width: 0;
     }
-    .control-group {
-      margin-bottom: 0.2rem;
-    }
+
     .control-group label {
       display: block;
       font-size: 0.85rem;
@@ -93,7 +102,7 @@
     hr.separator {
       border: 0;
       border-top: 1px solid #ddd;
-      margin: 0.4rem 0;
+      margin: 0.4rem 0 0.2rem 0;
     }
     .buttons {
       display: flex;
@@ -135,130 +144,147 @@
       display: block;
     }
 
-    /* Mobil / keskeny nézet: rajz a beállítások alatt */
-    @media (max-width: 900px) {
+    /* Nagyobb kijelző: vezérlők balra, canvas jobbra,
+       a két vezérlő-blokk egymás alatt */
+    @media (min-width: 900px) {
       .container {
-        flex-direction: column;
+        flex-direction: row;
       }
       .controls {
+        flex: 0 0 380px;
+      }
+      .controls-inner {
+        flex-direction: column;   /* itt egymás alatt a két blokk */
+      }
+      .controls-col {
         flex: none;
-        width: 100%;
+      }
+      .controls-col-top {
+        border-bottom: 1px solid #eee;
+        padding-bottom: 0.4rem;
+      }
+      .controls-col-bottom {
+        padding-top: 0.4rem;
       }
     }
   </style>
 </head>
 <body>
 <div class="page">
-  <h1>Rodé Lajos - Hópehely generátor v20</h1>
+  <h1>Rodé Lajos - Hópehely generátor v21</h1>
 
   <div class="container">
     <div class="controls">
       <h2>Paraméterek</h2>
 
       <div class="controls-inner">
-        <!-- Alap paraméterek -->
-        <div class="control-group">
-          <label for="angleSlider">Szög (°)</label>
-          <div class="control-row">
-            <input id="angleSlider" type="range" min="10" max="120" step="1" value="60">
-            <input id="angleInput" type="number" min="10" max="120" step="1" value="60">
+        <!-- FELSŐ / BAL BLOKK: Szög, Vastagság, Köz, Méretcsökkenés -->
+        <div class="controls-col controls-col-top">
+          <div class="control-group">
+            <label for="angleSlider">Szög (°)</label>
+            <div class="control-row">
+              <input id="angleSlider" type="range" min="10" max="120" step="1" value="60">
+              <input id="angleInput" type="number" min="10" max="120" step="1" value="60">
+            </div>
           </div>
-        </div>
 
-        <div class="control-group">
-          <label for="ratioSlider">Vastagság (%)</label>
-          <div class="control-row">
-            <input id="ratioSlider" type="range" min="5" max="40" step="1" value="15">
-            <input id="ratioInput" type="number" min="5" max="40" step="1" value="15">
+          <div class="control-group">
+            <label for="ratioSlider">Vastagság (%)</label>
+            <div class="control-row">
+              <input id="ratioSlider" type="range" min="5" max="40" step="1" value="15">
+              <input id="ratioInput" type="number" min="5" max="40" step="1" value="15">
+            </div>
           </div>
-        </div>
 
-        <div class="control-group">
-          <label for="spacingSlider">Köz (%)</label>
-          <div class="control-row">
-            <input id="spacingSlider" type="range" min="10" max="50" step="1" value="50">
-            <input id="spacingInput" type="number" min="10" max="50" step="1" value="50">
+          <div class="control-group">
+            <label for="spacingSlider">Köz (%)</label>
+            <div class="control-row">
+              <input id="spacingSlider" type="range" min="10" max="50" step="1" value="50">
+              <input id="spacingInput" type="number" min="10" max="50" step="1" value="50">
+            </div>
           </div>
-        </div>
 
-        <div class="control-group">
-          <label for="reductionSlider">Méretcsökkenés (%)</label>
-          <div class="control-row">
-            <input id="reductionSlider" type="range" min="0" max="70" step="1" value="50">
-            <input id="reductionInput" type="number" min="0" max="70" step="1" value="50">
+          <div class="control-group">
+            <label for="reductionSlider">Méretcsökkenés (%)</label>
+            <div class="control-row">
+              <input id="reductionSlider" type="range" min="0" max="70" step="1" value="50">
+              <input id="reductionInput" type="number" min="0" max="70" step="1" value="50">
+            </div>
           </div>
+
+          <hr class="separator">
         </div>
 
-        <hr class="separator">
-
-        <!-- Végforma blokk -->
-        <div class="control-group">
-          <label for="tipStyleSelect">Végforma</label>
-          <select id="tipStyleSelect">
-            <option value="straight" selected>Egyenes</option>
-            <option value="tent">Háromszög</option>
-            <option value="trap">Trapéz</option>
-            <option value="hex">Hatszög</option>
-            <option value="Y">Y</option>
-          </select>
-        </div>
-
-        <div class="control-group">
-          <label for="tipScaleSlider">Végforma méret</label>
-          <div class="control-row">
-            <input id="tipScaleSlider" type="range" min="0.2" max="5" step="0.05" value="1">
-            <input id="tipScaleInput" type="number" min="0.2" max="5" step="0.05" value="1">
+        <!-- ALSÓ / JOBB BLOKK: Végforma + többi paraméter -->
+        <div class="controls-col controls-col-bottom">
+          <div class="control-group">
+            <label for="tipStyleSelect">Végforma</label>
+            <select id="tipStyleSelect">
+              <option value="straight" selected>Egyenes</option>
+              <option value="tent">Háromszög</option>
+              <option value="trap">Trapéz</option>
+              <option value="hex">Hatszög</option>
+              <option value="Y">Y</option>
+            </select>
           </div>
-        </div>
 
-        <div class="control-group">
-          <div class="control-row">
-            <label class="chk-label">
-              <input type="checkbox" id="tipOnlyCheckbox">
-              Csak végforma
+          <div class="control-group">
+            <label for="tipScaleSlider">Végforma méret</label>
+            <div class="control-row">
+              <input id="tipScaleSlider" type="range" min="0.2" max="5" step="0.05" value="1">
+              <input id="tipScaleInput" type="number" min="0.2" max="5" step="0.05" value="1">
+            </div>
+          </div>
+
+          <div class="control-group">
+            <div class="control-row">
+              <label class="chk-label">
+                <input type="checkbox" id="tipOnlyCheckbox">
+                Csak végforma
+              </label>
+              <label class="chk-label">
+                <input type="checkbox" id="tipCenterCheckbox" checked>
+                Közép
+              </label>
+              <label class="chk-label">
+                <input type="checkbox" id="showTrunkCheckbox" checked>
+                Törzs
+              </label>
+            </div>
+          </div>
+
+          <hr class="separator">
+
+          <div class="control-group">
+            <label for="armsSlider">Karok száma</label>
+            <div class="control-row">
+              <input id="armsSlider" type="range" min="3" max="12" step="1" value="6">
+              <input id="armsInput" type="number" min="3" max="12" step="1" value="6">
+            </div>
+          </div>
+
+          <hr class="separator">
+
+          <div class="control-group">
+            <label for="minRectSlider">Min. vastagság (mm)</label>
+            <div class="control-row">
+              <input id="minRectSlider" type="range" min="0" max="10" step="0.1" value="3.0">
+              <input id="minRectInput" type="number" min="0" max="10" step="0.1" value="3.0">
+            </div>
+          </div>
+
+          <div class="control-group">
+            <label>
+              <input type="checkbox" id="growSmallCheckbox" checked>
+              Kisebbek növelése
             </label>
-            <label class="chk-label">
-              <input type="checkbox" id="tipCenterCheckbox" checked>
-              Közép
-            </label>
-            <label class="chk-label">
-              <input type="checkbox" id="showTrunkCheckbox" checked>
-              Törzs
-            </label>
           </div>
-        </div>
 
-        <hr class="separator">
-
-        <div class="control-group">
-          <label for="armsSlider">Karok száma</label>
-          <div class="control-row">
-            <input id="armsSlider" type="range" min="3" max="12" step="1" value="6">
-            <input id="armsInput" type="number" min="3" max="12" step="1" value="6">
+          <div class="buttons">
+            <button id="randomBtn" class="secondary">Véletlen paraméterek</button>
+            <button id="toggleOutlineBtn" class="secondary">Kontúr ki/be</button>
+            <button id="exportSolidBtn" class="primary">MENTÉS</button>
           </div>
-        </div>
-
-        <hr class="separator">
-
-        <div class="control-group">
-          <label for="minRectSlider">Min. vastagság (mm)</label>
-          <div class="control-row">
-            <input id="minRectSlider" type="range" min="0" max="10" step="0.1" value="3.0">
-            <input id="minRectInput" type="number" min="0" max="10" step="0.1" value="3.0">
-          </div>
-        </div>
-
-        <div class="control-group">
-          <label>
-            <input type="checkbox" id="growSmallCheckbox" checked>
-            Kisebbek növelése
-          </label>
-        </div>
-
-        <div class="buttons">
-          <button id="randomBtn" class="secondary">Véletlen paraméterek</button>
-          <button id="toggleOutlineBtn" class="secondary">Kontúr ki/be</button>
-          <button id="exportSolidBtn" class="primary">MENTÉS</button>
         </div>
       </div>
     </div>
