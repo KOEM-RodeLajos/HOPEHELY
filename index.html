@@ -29,7 +29,10 @@
       padding: 1rem;
     }
 
-    /* Alapértelmezés: mobil / keskeny – vezérlők felül, két oszlopban, alatta a vászon */
+    /* ALAPÉRTELMEZÉS: mobil PORTRAIT (álló)
+       - vezérlők felül, két oszlopban egymás mellett
+       - alattuk a canvas
+    */
     .container {
       display: flex;
       flex-direction: column;
@@ -45,13 +48,14 @@
     }
     .controls-inner {
       display: flex;
-      flex-direction: row;   /* mobilon két oszlop egymás mellett */
+      flex-direction: row;
       gap: 0.8rem;
       flex-wrap: wrap;
     }
     .controls-col {
-      flex: 1 1 160px;
-      min-width: 0;
+      flex: 0 0 50%;
+      max-width: 50%;
+      min-width: 50%;
       display: flex;
       flex-direction: column;
       gap: 0.6rem;
@@ -144,8 +148,9 @@
       display: block;
     }
 
-    /* Nagyobb kijelző: vezérlők balra, canvas jobbra,
-       a két vezérlő-blokk egymás alatt */
+    /* NAGY KIJELZŐ: széles ablak (asztali) – vezérlők balra, canvas jobbra,
+       két vezérlő-blokk egymás alatt
+    */
     @media (min-width: 900px) {
       .container {
         flex-direction: row;
@@ -154,10 +159,41 @@
         flex: 0 0 380px;
       }
       .controls-inner {
-        flex-direction: column;   /* itt egymás alatt a két blokk */
+        flex-direction: column;
+        flex-wrap: nowrap;
       }
       .controls-col {
         flex: none;
+        max-width: 100%;
+        min-width: 0;
+      }
+      .controls-col-top {
+        border-bottom: 1px solid #eee;
+        padding-bottom: 0.4rem;
+      }
+      .controls-col-bottom {
+        padding-top: 0.4rem;
+      }
+    }
+
+    /* MOBIL LANDSCAPE: alacsony, de széles kijelző – viselkedjen úgy, mint desktop:
+       vezérlők balra, canvas jobbra, blokkok egymás alatt
+    */
+    @media (orientation: landscape) and (max-width: 899px) {
+      .container {
+        flex-direction: row;
+      }
+      .controls {
+        flex: 0 0 320px;
+      }
+      .controls-inner {
+        flex-direction: column;
+        flex-wrap: nowrap;
+      }
+      .controls-col {
+        flex: none;
+        max-width: 100%;
+        min-width: 0;
       }
       .controls-col-top {
         border-bottom: 1px solid #eee;
@@ -171,7 +207,7 @@
 </head>
 <body>
 <div class="page">
-  <h1>Rodé Lajos - Hópehely generátor v21</h1>
+  <h1>Rodé Lajos - Hópehely generátor v22</h1>
 
   <div class="container">
     <div class="controls">
