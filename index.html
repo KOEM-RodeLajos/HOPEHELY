@@ -29,11 +29,7 @@
       padding: 1rem;
     }
 
-    /* ALAP: PORTRAIT (telefon álló + monitor álló)
-       - Konténer: egymás alatt
-       - Vezérlők felül, két oszlopban (grid)
-       - Canvas alattuk
-    */
+    /* ALAP: PORTRAIT (telefon álló + monitor álló) */
     .container {
       display: flex;
       flex-direction: column;
@@ -146,10 +142,7 @@
       display: block;
     }
 
-    /* LANDSCAPE (monitor fekvő + telefon fekvő)
-       - Konténer: sorban (vezérlők balra, canvas jobbra)
-       - Vezérlőblokk: oszlopos, a két rész egymás alatt
-    */
+    /* LANDSCAPE (monitor fekvő + telefon fekvő) */
     @media (orientation: landscape) {
       .container {
         flex-direction: row;
@@ -176,14 +169,14 @@
 </head>
 <body>
 <div class="page">
-  <h1>Rodé Lajos - Hópehely generátor v25</h1>
+  <h1>Rodé Lajos - Hópehely generátor v27</h1>
 
   <div class="container">
     <div class="controls">
       <h2>Paraméterek</h2>
 
       <div class="controls-inner">
-        <!-- FELSŐ / BAL BLOKK: Szög, Vastagság, Köz, Méretcsökkenés -->
+        <!-- FELSŐ / BAL BLOKK -->
         <div class="controls-col controls-col-top">
           <div class="control-group">
             <label for="angleSlider">Szög (°)</label>
@@ -220,7 +213,7 @@
           <hr class="separator">
         </div>
 
-        <!-- ALSÓ / JOBB BLOKK: Végforma + többi paraméter -->
+        <!-- ALSÓ / JOBB BLOKK -->
         <div class="controls-col controls-col-bottom">
           <div class="control-group">
             <label for="tipStyleSelect">Végforma</label>
@@ -289,7 +282,10 @@
             <button id="randomBtn" class="secondary">Véletlen paraméterek</button>
             <button id="toggleOutlineBtn" class="secondary">Kontúr ki/be</button>
             <button id="exportSolidBtn" class="primary">MENTÉS</button>
+            <button id="loadJpgBtn" class="secondary">Hópehely betöltése</button>
           </div>
+
+          <input id="loadJpgInput" type="file" accept="image/jpeg" style="display:none">
         </div>
       </div>
     </div>
@@ -301,12 +297,9 @@
 </div>
 
 <script>
-  // --- Globális állapot ---
-  let currentModel = null; // { rects: [poly...], minX, maxX, minY, maxY }
-  const DXF_TARGET_SIZE = 100.0; // mm
-  let showOutline = false;       // alapból kontúr kikapcsolva
-
-  // --- Paraméterkezelés ---
+  let currentModel = null;
+  const DXF_TARGET_SIZE = 100.0;
+  let showOutline = false;
 
   function syncInputPair(sliderId, numberId, onChange) {
     const slider = document.getElementById(sliderId);
@@ -343,7 +336,6 @@
     const tipCenterVal = document.getElementById('tipCenterCheckbox').checked;
     const showTrunkVal = document.getElementById('showTrunkCheckbox').checked;
 
-    // 0=egyenes, 1=háromszög, 2=Y, 3=hatszög, 4=trapéz
     let tipMode = 0;
     if (tipStyleVal === 'tent') tipMode = 1;
     else if (tipStyleVal === 'Y') tipMode = 2;
@@ -366,11 +358,9 @@
     };
   }
 
-  // --- Segéd: téglalap bázispontból ---
-
   function makeRectFromBase(bx, by, length, width, angleRad) {
-    const d = { x: Math.cos(angleRad), y: Math.sin(angleRad) };        // hossz irány
-    const n = { x: -Math.sin(angleRad), y: Math.cos(angleRad) };       // szélesség irány
+    const d = { x: Math.cos(angleRad), y: Math.sin(angleRad) };
+    const n = { x: -Math.sin(angleRad), y: Math.cos(angleRad) };
 
     const halfL = length / 2;
     const halfW = width / 2;
@@ -378,15 +368,13 @@
     const cx = bx + d.x * halfL;
     const cy = by + d.y * halfL;
 
-    const p1 = [ cx + n.x * halfW + d.x * halfL, cy + n.y * halfW + d.y * halfL ]; // távoli bal
-    const p2 = [ cx - n.x * halfW + d.x * halfL, cy - n.y * halfW + d.y * halfL ]; // távoli jobb
-    const p3 = [ cx - n.x * halfW - d.x * halfL, cy - n.y * halfW - d.y * halfL ]; // közeli jobb
-    const p4 = [ cx + n.x * halfW - d.x * halfL, cy + n.y * halfW - d.y * halfL ]; // közeli bal
+    const p1 = [ cx + n.x * halfW + d.x * halfL, cy + n.y * halfW + d.y * halfL ];
+    const p2 = [ cx - n.x * halfW + d.x * halfL, cy - n.y * halfW + d.y * halfL ];
+    const p3 = [ cx - n.x * halfW - d.x * halfL, cy - n.y * halfW - d.y * halfL ];
+    const p4 = [ cx + n.x * halfW - d.x * halfL, cy + n.y * halfW - d.y * halfL ];
 
-    return [p1, p2, p3, p4, p1.slice()]; // zárt gyűrű
+    return [p1, p2, p3, p4, p1.slice()];
   }
-
-  // --- Segéd: poligon skálázása a saját középpontjából ---
 
   function scalePolygon(poly, scale) {
     if (!poly || poly.length < 2 || scale === 1) return poly;
@@ -408,23 +396,20 @@
     return scaled;
   }
 
-  // --- Egy fa (egy kar) szegmensei ---
-
   function buildSingleTreeSegments(params) {
     const segments = [];
 
-    const trunkLength = 50;  // modell egység
+    const trunkLength = 50;
     const aspect = Math.max(0.02, params.rectAspectPercent / 100.0);
     const trunkWidth = trunkLength * aspect;
 
-    const trunkAngle = Math.PI / 2; // felfelé
+    const trunkAngle = Math.PI / 2;
     const spacing = params.spacingPercent;
     const angleOffset = params.branchAngleDeg * Math.PI / 180.0;
     const reduction = Math.max(0, Math.min(0.95, params.reductionPercent / 100.0));
     const tipMode = params.tipMode;
     const tipScale = Number.isFinite(params.tipScale) ? params.tipScale : 1;
 
-    // törzs
     segments.push({
       bx: 0, by: 0,
       length: trunkLength,
@@ -470,7 +455,6 @@
 
         const dBranch = { x: Math.cos(branchAngle), y: Math.sin(branchAngle) };
 
-        // ágacskák
         for (let j = 1; j <= count; j++) {
           const t2 = j * spacing / 100.0;
           const posOnBranch = branchLength * t2;
@@ -505,7 +489,6 @@
     return segments;
   }
 
-  // Hópehely: fa szegmensek elforgatva
   function buildSnowflakeSegments(params) {
     const baseSegs = buildSingleTreeSegments(params);
     const arms = Math.max(3, params.armCount);
@@ -537,8 +520,6 @@
     }
     return all;
   }
-
-  // --- Segéd: tip-poligonok ---
 
   function buildTentHexFromEdge(p1, p2, dir, tipScale) {
     const dxB = p2[0] - p1[0];
@@ -638,12 +619,12 @@
     const halfTop = b / 4;
 
     const local = [
-      [ b/2,     0   ], // BR
-      [ halfTop, h   ], // OR
-      [-halfTop, h   ], // OL
-      [-b/2,     0   ], // BL
-      [-halfTop,-h   ], // IL
-      [ halfTop,-h   ]  // IR
+      [ b/2,     0   ],
+      [ halfTop, h   ],
+      [-halfTop, h   ],
+      [-b/2,     0   ],
+      [-halfTop,-h   ],
+      [ halfTop,-h   ]
     ];
 
     function toWorld(X, Y) {
@@ -658,7 +639,6 @@
     return scalePolygon(hexTrapPoly, tipScale);
   }
 
-  // Szegmens -> poligonok (téglalap + végforma)
   function segmentToPolys(seg, params) {
     const polys = [];
     const mainRect = makeRectFromBase(seg.bx, seg.by, seg.length, seg.width, seg.angle);
@@ -669,13 +649,11 @@
     const addBaseTips = !!params.tipAtCenter && !!seg.isTrunk;
     const showTrunk   = !!params.showTrunk;
 
-    // Törzs mindig rajzolódik, ha showTrunk=true, függetlenül a "Csak végforma"-tól.
     if (seg.isTrunk) {
       if (showTrunk) {
         polys.push(mainRect);
       }
     } else {
-      // Ágak/ágacskák esetén a "Csak végforma" szűr.
       if (!onlyTips) {
         polys.push(mainRect);
       }
@@ -685,7 +663,6 @@
 
     const d = { x: Math.cos(seg.angle), y: Math.sin(seg.angle) };
 
-    // Y végforma
     if (tipMode === 2) {
       function addYAt(baseX, baseY, mainAngle) {
         const capLength = seg.length * 0.3 * tipScale;
@@ -708,7 +685,6 @@
       return polys;
     }
 
-    // poligonvégformák
     const p1_far = mainRect[0];
     const p2_far = mainRect[1];
     const p1_near = mainRect[3];
@@ -743,8 +719,6 @@
     return polys;
   }
 
-  // --- Poligon teszt: pont a poligonban? (ray casting) ---
-
   function pointInPolygon(x, y, poly) {
     let inside = false;
     const n = poly.length;
@@ -758,8 +732,6 @@
     }
     return inside;
   }
-
-  // --- Geometria frissítése ---
 
   function updateGeometry() {
     const params = getParams();
@@ -839,8 +811,6 @@
     currentModel = { rects, minX, maxX, minY, maxY };
   }
 
-  // --- Rajzolás vászonra ---
-
   function redraw() {
     if (!currentModel) return;
 
@@ -891,8 +861,6 @@
     redraw();
   }
 
-  // --- Skálázás DXF-hez ---
-
   function getScaledPolys() {
     if (!currentModel) return null;
     const { rects, minX, maxX, minY, maxY } = currentModel;
@@ -923,8 +891,6 @@
     URL.revokeObjectURL(url);
   }
 
-  // --- Kódrész (PEHELY- utáni) összeállítása ---
-
   function buildCodeString() {
     const p = getParams();
     const angle  = Math.round(p.branchAngleDeg);
@@ -932,7 +898,6 @@
     const space  = Math.round(p.spacingPercent);
     const red    = Math.round(p.reductionPercent);
 
-    // tip kód: 0S, 3S, 4S, 6S, YY
     let tipCode = '0S';
     if      (p.tipMode === 1) tipCode = '3S';
     else if (p.tipMode === 2) tipCode = 'YY';
@@ -947,9 +912,6 @@
     const minRectStr    = p.minRectMm.toFixed(1);
     const growFlag      = p.growSmallRects ? 'Y' : 'N';
 
-    // sorrend: Szög, Vastagság, Köz, Méretcsökkenés,
-    // Végforma, Végforma méret, Csak végforma, Közép, Törzs,
-    // Karok száma, Min. vastagság, Kisebbek növelése
     return (
       angle + '-' +
       ratio + '-' +
@@ -966,50 +928,98 @@
     );
   }
 
-  // --- JPG mentése: aktuális canvas + aláírt kód ---
+  function dataURLToUint8Array(dataURL) {
+    const parts = dataURL.split(',');
+    const base64 = parts[1];
+    const binary = atob(base64);
+    const len = binary.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes;
+  }
 
+  function embedCodeInJpeg(originalBytes, codeString) {
+    if (originalBytes.length < 2 || originalBytes[0] !== 0xFF || originalBytes[1] !== 0xD8) {
+      return originalBytes;
+    }
+
+    const text = 'PEHELY-' + codeString;
+    const encoder = new TextEncoder();
+    const msgBytes = encoder.encode(text);
+    const len = 2 + msgBytes.length;
+
+    const result = new Uint8Array(originalBytes.length + 4 + msgBytes.length);
+    let offset = 0;
+
+    result[offset++] = originalBytes[0];
+    result[offset++] = originalBytes[1];
+
+    result[offset++] = 0xFF;
+    result[offset++] = 0xFE;
+    result[offset++] = (len >> 8) & 0xFF;
+    result[offset++] = len & 0xFF;
+
+    result.set(msgBytes, offset);
+    offset += msgBytes.length;
+
+    result.set(originalBytes.subarray(2), offset);
+
+    return result;
+  }
+
+  // *** Itt állítottam vissza a "régi" kinézetet: sötétkék háttér + alul szöveg,
+  //     és utána erre építve kerül bele a COM szegmens ***
   function downloadJPEGWithCode(codeString) {
     const mainCanvas = document.getElementById('snowflakeCanvas');
     if (!mainCanvas) return;
 
+    // Nagyobb export-canvas: alul hely a kódnak
     const exportCanvas = document.createElement('canvas');
-    const extraHeight = 40; // hely a kódnak alul
+    const extraHeight = 40;
     exportCanvas.width = mainCanvas.width;
     exportCanvas.height = mainCanvas.height + extraHeight;
 
     const ctx = exportCanvas.getContext('2d');
 
-    // háttér
+    // háttér sötétkék
     ctx.fillStyle = '#001633';
     ctx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
 
-    // hópehely képe (aktuális állapot) átmásolva
+    // hópehely kép
     ctx.drawImage(mainCanvas, 0, 0);
 
-    // kód kiírása alul
+    // kód kiírása alul (ahogy korábban volt)
     ctx.fillStyle = '#ffffff';
     ctx.font = '16px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(codeString, exportCanvas.width / 2, mainCanvas.height + extraHeight / 2);
 
+    // JPEG előállítása
     const dataURL = exportCanvas.toDataURL('image/jpeg', 0.95);
+    const bytes = dataURLToUint8Array(dataURL);
+
+    // PEHELY-kód beágyazása COM szegmensbe
+    const withCodeBytes = embedCodeInJpeg(bytes, codeString);
+
+    const blob = new Blob([withCodeBytes], { type: 'image/jpeg' });
+    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = dataURL;
+    a.href = url;
     a.download = `PEHELY-${codeString}.jpg`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   }
-
-  // --- Egyszerű poligon-unió: élek felosztása + szegmens-osztályozás ---
 
   function buildLaserContoursExact(scaledPolys) {
     if (!scaledPolys || !scaledPolys.length) return [];
 
     const EPS = 1e-9;
 
-    // Poligon-információk (bbox a gyorsításhoz)
     const polyInfos = scaledPolys.map(poly => {
       const unique = poly.slice(0, poly.length - 1);
       let minX = Infinity, maxX = -Infinity;
@@ -1032,7 +1042,6 @@
       return false;
     }
 
-    // Élek listája
     const edges = [];
     for (let pi = 0; pi < scaledPolys.length; pi++) {
       const poly = scaledPolys[pi];
@@ -1060,7 +1069,6 @@
       arr.push(t);
     }
 
-    // Két él metszése, paraméterek gyűjtése
     function intersectEdges(e1, e2) {
       const p = { x: e1.ax, y: e1.ay };
       const r = { x: e1.bx - e1.ax, y: e1.by - e1.ay };
@@ -1074,11 +1082,10 @@
       const ss = s.x * s.x + s.y * s.y;
 
       if (Math.abs(rxs) < 1e-9) {
-        // párhuzamos
         if (Math.abs(qpxr) > 1e-9) {
           return;
         }
-        // kollineáris
+
         const t0 = ( (q.x - p.x) * r.x + (q.y - p.y) * r.y ) / rr;
         const t1 = ( (q.x + s.x - p.x) * r.x + (q.y + s.y - p.y) * r.y ) / rr;
 
@@ -1108,7 +1115,6 @@
       }
     }
 
-    // Élek felosztása metszéspontok szerint
     for (let i = 0; i < edges.length; i++) {
       for (let j = i + 1; j < edges.length; j++) {
         intersectEdges(edges[i], edges[j]);
@@ -1131,7 +1137,6 @@
       }
     }
 
-    // Szegmensek osztályozása: határ-e?
     const boundarySegments = [];
     for (const seg of rawSegments) {
       const dx = seg.x1 - seg.x0;
@@ -1157,7 +1162,6 @@
       }
     }
 
-    // Szakaszokból kontúrok építése
     const pointKey = (x, y) => x.toFixed(4) + ',' + y.toFixed(4);
 
     const adjacency = new Map();
@@ -1221,8 +1225,6 @@
     return contours;
   }
 
-  // --- DXF export: unió-kontúrok LWPOLYLINE-ként + JPG ---
-
   function exportDXFRectanglesSolid() {
     const scaled = getScaledPolys();
     if (!scaled) {
@@ -1255,9 +1257,9 @@
       if (unique.length < 3) continue;
 
       add(0, 'LWPOLYLINE');
-      add(8, '0'); // layer
+      add(8, '0');
       add(90, unique.length);
-      add(70, 1);  // closed polyline
+      add(70, 1);
 
       for (const [x, y] of unique) {
         add(10, x.toFixed(4));
@@ -1271,59 +1273,134 @@
     const codeString = buildCodeString();
     const filename = `PEHELY-${codeString}.dxf`;
 
-    // DXF mentés
     downloadDXF(dxf, filename);
-    // JPG mentés
     downloadJPEGWithCode(codeString);
   }
-
-  // --- Véletlen paraméterek ---
 
   function randomizeParams() {
     function randInt(min, max) {
       return Math.round(min + Math.random() * (max - min));
     }
 
-    // Szög (10–90 között)
     const angle = randInt(10, 90);
     document.getElementById('angleSlider').value = angle;
     document.getElementById('angleInput').value  = angle;
 
-    // Vastagság
     const ratio = randInt(8, 30);
     document.getElementById('ratioSlider').value = ratio;
     document.getElementById('ratioInput').value  = ratio;
 
-    // Köz
     const spacing = randInt(15, 45);
     document.getElementById('spacingSlider').value = spacing;
     document.getElementById('spacingInput').value  = spacing;
 
-    // Méretcsökkenés
     const reduction = randInt(20, 60);
     document.getElementById('reductionSlider').value = reduction;
     document.getElementById('reductionInput').value  = reduction;
 
-    // Végforma
     const tipOptions = ['straight', 'tent', 'trap', 'hex', 'Y'];
     const idx = randInt(0, tipOptions.length - 1);
     document.getElementById('tipStyleSelect').value = tipOptions[idx];
 
-    // Közép
     document.getElementById('tipCenterCheckbox').checked = (Math.random() < 0.5);
 
-    // Minden más változatlan
     recomputeAndRedraw();
   }
-
-  // --- Kontúr ki/be ---
 
   function toggleOutline() {
     showOutline = !showOutline;
     redraw();
   }
 
-  // --- Init ---
+  function parseCodeFromJpegArrayBuffer(arrayBuffer) {
+    const bytes = new Uint8Array(arrayBuffer);
+    if (bytes.length < 4 || bytes[0] !== 0xFF || bytes[1] !== 0xD8) {
+      return null;
+    }
+
+    let i = 2;
+    while (i + 4 <= bytes.length) {
+      if (bytes[i] !== 0xFF) {
+        i++;
+        continue;
+      }
+      const marker = bytes[i + 1];
+
+      if (marker === 0xD9) break;
+      if (marker === 0xDA) break;
+
+      const len = (bytes[i + 2] << 8) | bytes[i + 3];
+      if (len < 2 || i + 2 + len > bytes.length) {
+        break;
+      }
+
+      if (marker === 0xFE) {
+        const start = i + 4;
+        const end = i + 2 + len;
+        const comBytes = bytes.subarray(start, end);
+        const decoder = new TextDecoder("utf-8");
+        const text = decoder.decode(comBytes);
+        const idx = text.indexOf('PEHELY-');
+        if (idx !== -1) {
+          const code = text.substring(idx + 7).trim();
+          return code;
+        }
+      }
+
+      i += 2 + len;
+    }
+    return null;
+  }
+
+  function applyCodeString(codeString) {
+    const parts = codeString.split('-');
+    if (parts.length < 12) {
+      alert('Érvénytelen PEHELY kód.');
+      return;
+    }
+
+    const [
+      angleStr, ratioStr, spaceStr, redStr,
+      tipCode, tipScaleStr, tipOnlyFlag, tipCenterFlag, trunkFlag,
+      armsStr, minRectStr, growFlag
+    ] = parts;
+
+    function setPair(sliderId, inputId, value) {
+      const slider = document.getElementById(sliderId);
+      const input  = document.getElementById(inputId);
+      if (!slider || !input) return;
+      slider.value = value;
+      input.value  = value;
+    }
+
+    setPair('angleSlider',     'angleInput',      angleStr);
+    setPair('ratioSlider',     'ratioInput',      ratioStr);
+    setPair('spacingSlider',   'spacingInput',    spaceStr);
+    setPair('reductionSlider', 'reductionInput',  redStr);
+    setPair('armsSlider',      'armsInput',       armsStr);
+
+    const minRectVal = parseFloat(minRectStr);
+    if (!isNaN(minRectVal)) {
+      setPair('minRectSlider', 'minRectInput', minRectVal.toFixed(1));
+    }
+
+    const tipScaleVal = parseFloat(tipScaleStr);
+    if (!isNaN(tipScaleVal)) {
+      setPair('tipScaleSlider', 'tipScaleInput', tipScaleVal);
+    }
+
+    let tipStyleVal = 'straight';
+    if (tipCode === '3S') tipStyleVal = 'tent';
+    else if (tipCode === '4S') tipStyleVal = 'trap';
+    else if (tipCode === '6S') tipStyleVal = 'hex';
+    else if (tipCode === 'YY') tipStyleVal = 'Y';
+    document.getElementById('tipStyleSelect').value = tipStyleVal;
+
+    document.getElementById('tipOnlyCheckbox').checked    = (tipOnlyFlag   === 'Y');
+    document.getElementById('tipCenterCheckbox').checked  = (tipCenterFlag === 'Y');
+    document.getElementById('showTrunkCheckbox').checked  = (trunkFlag     === 'Y');
+    document.getElementById('growSmallCheckbox').checked  = (growFlag      === 'Y');
+  }
 
   window.addEventListener('load', () => {
     syncInputPair('angleSlider',    'angleInput',    recomputeAndRedraw);
@@ -1352,7 +1429,32 @@
     document.getElementById('exportSolidBtn')
       .addEventListener('click', exportDXFRectanglesSolid);
 
-    // induló rajz az alapértékekkel
+    const loadBtn = document.getElementById('loadJpgBtn');
+    const loadInput = document.getElementById('loadJpgInput');
+
+    loadBtn.addEventListener('click', () => {
+      loadInput.value = '';
+      loadInput.click();
+    });
+
+    loadInput.addEventListener('change', (evt) => {
+      const file = evt.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const buffer = e.target.result;
+        const code = parseCodeFromJpegArrayBuffer(buffer);
+        if (!code) {
+          alert('A kiválasztott JPG nem tartalmaz PEHELY kódot.');
+          return;
+        }
+        applyCodeString(code);
+        recomputeAndRedraw();
+      };
+      reader.readAsArrayBuffer(file);
+    });
+
     recomputeAndRedraw();
   });
 </script>
