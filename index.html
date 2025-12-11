@@ -169,7 +169,7 @@
 </head>
 <body>
 <div class="page">
-  <h1>Rodé Lajos - Hópehely generátor v27</h1>
+  <h1>Rodé Lajos - Hópehely generátor v28</h1>
 
   <div class="container">
     <div class="controls">
@@ -691,7 +691,7 @@
     const p2_near = mainRect[2];
 
     const dTop  = d;
-    const dBase = { x: -d.x, y: -d.y };
+    thedBase = { x: -d.x, y: -d.y };
 
     if (tipMode === 1) {
       const hexTop = buildTentHexFromEdge(p1_far,  p2_far,  dTop,  tipScale);
@@ -969,13 +969,10 @@
     return result;
   }
 
-  // *** Itt állítottam vissza a "régi" kinézetet: sötétkék háttér + alul szöveg,
-  //     és utána erre építve kerül bele a COM szegmens ***
   function downloadJPEGWithCode(codeString) {
     const mainCanvas = document.getElementById('snowflakeCanvas');
     if (!mainCanvas) return;
 
-    // Nagyobb export-canvas: alul hely a kódnak
     const exportCanvas = document.createElement('canvas');
     const extraHeight = 40;
     exportCanvas.width = mainCanvas.width;
@@ -983,25 +980,20 @@
 
     const ctx = exportCanvas.getContext('2d');
 
-    // háttér sötétkék
     ctx.fillStyle = '#001633';
     ctx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
 
-    // hópehely kép
     ctx.drawImage(mainCanvas, 0, 0);
 
-    // kód kiírása alul (ahogy korábban volt)
     ctx.fillStyle = '#ffffff';
     ctx.font = '16px system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(codeString, exportCanvas.width / 2, mainCanvas.height + extraHeight / 2);
 
-    // JPEG előállítása
     const dataURL = exportCanvas.toDataURL('image/jpeg', 0.95);
     const bytes = dataURLToUint8Array(dataURL);
 
-    // PEHELY-kód beágyazása COM szegmensbe
     const withCodeBytes = embedCodeInJpeg(bytes, codeString);
 
     const blob = new Blob([withCodeBytes], { type: 'image/jpeg' });
@@ -1225,6 +1217,7 @@
     return contours;
   }
 
+  // --- DXF export: legkülső kontúr fekete, többi kék ---
   function exportDXFRectanglesSolid() {
     const scaled = getScaledPolys();
     if (!scaled) {
@@ -1237,6 +1230,28 @@
     if (!contours.length) {
       alert('Nem sikerült kontúrt képezni a lézervágáshoz.');
       return;
+    }
+
+    // Legnagyobb (legkülső) kontúr keresése terület alapján
+    let outerIndex = -1;
+    let maxAbsArea = -1;
+    for (let idx = 0; idx < contours.length; idx++) {
+      const contour = contours[idx];
+      const unique = contour.slice(0, contour.length - 1);
+      if (unique.length < 3) continue;
+
+      let area = 0;
+      for (let i = 0, j = unique.length - 1; i < unique.length; j = i++) {
+        const xi = unique[i][0], yi = unique[i][1];
+        const xj = unique[j][0], yj = unique[j][1];
+        area += (xj * yi - xi * yj);
+      }
+      area *= 0.5;
+      const absArea = Math.abs(area);
+      if (absArea > maxAbsArea) {
+        maxAbsArea = absArea;
+        outerIndex = idx;
+      }
     }
 
     let dxf = '';
@@ -1252,14 +1267,23 @@
     add(0, 'SECTION');
     add(2, 'ENTITIES');
 
-    for (const contour of contours) {
+    for (let idx = 0; idx < contours.length; idx++) {
+      const contour = contours[idx];
       const unique = contour.slice(0, contour.length - 1);
       if (unique.length < 3) continue;
 
       add(0, 'LWPOLYLINE');
-      add(8, '0');
+      add(8, '0'); // layer
+
+      // Szín: legkülső kontúr fekete (7), többi kék (5)
+      if (idx === outerIndex) {
+        add(62, 7);
+      } else {
+        add(62, 5);
+      }
+
       add(90, unique.length);
-      add(70, 1);
+      add(70, 1);  // closed polyline
 
       for (const [x, y] of unique) {
         add(10, x.toFixed(4));
