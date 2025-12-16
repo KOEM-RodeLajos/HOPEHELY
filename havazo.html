@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Rodé Lajos - HAVAZO v10</title>
+  <title>Rodé Lajos - HAVAZO v11</title>
   <style>
     * {
       box-sizing: border-box;
@@ -242,7 +242,7 @@
 </head>
 <body>
 <div class="page">
-  <h1>Rodé Lajos - HAVAZO <span class="version">v10</span></h1>
+  <h1>Rodé Lajos - HAVAZO <span class="version">v11</span></h1>
 
   <div class="top-bar">
     <div class="folder-info">
@@ -837,7 +837,7 @@
         addParam(e1.splitTs, tmax);
 
         const u0 = ( (p.x - q.x) * s.x + (p.y - q.y) * s.y ) / ss;
-        const u1 = ( (p.x + r.x - q.x) * s.x + (p.y + r.y - q.y) ) / ss;
+        const u1 = ( (p.x + r.x - q.x) * s.x + (p.y + r.y - q.y) * s.y ) / ss;
         const umin = Math.max(0, Math.min(u0, u1));
         const umax = Math.min(1, Math.max(u0, u1));
         if (umax < -1e-9 || umin > 1 + 1e-9 || umax - umin < 1e-9) return;
