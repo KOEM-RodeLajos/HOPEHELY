@@ -2,7 +2,7 @@
 <html lang="hu">
 <head>
   <meta charset="UTF-8">
-  <title>Rodé Lajos - Hópehely generátor v31</title>
+  <title>Rodé Lajos - Hópehely generátor v35</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     * {
@@ -56,11 +56,17 @@
       display: flex;
       align-items: center;
       justify-content: center;
+      overflow: hidden; /* mobilon ne lógjon ki a vászon */
     }
     canvas {
       border-radius: 8px;
       background: #001633;
       box-shadow: inset 0 0 6px rgba(0,0,0,0.4);
+      display: block;
+      width: 100%;
+      height: auto;
+      max-width: 600px; /* desktopen maradjon a natív méret */
+      max-height: 100%;
     }
 
     .control-group {
@@ -151,13 +157,44 @@
         width: 100%;
       }
     }
+  @media (max-width: 600px) {
+  .page {
+    padding: 0.6rem;
+  }
+  h1 {
+    font-size: 1.15rem;
+  }
+  .container {
+    gap: 0.6rem;
+  }
+  .controls {
+    padding: 0.6rem 0.8rem 0.8rem;
+    max-height: 45vh;          /* hogy a vászon is látszódjon */
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .buttons {
+    position: sticky;          /* mobilon a gombok maradjanak kéznél */
+    bottom: 0;
+    background: #fff;
+    padding: 0.5rem 0 0.2rem;
+    margin-top: 0.6rem;
+  }
+  .canvas-container {
+    padding: 0.35rem;
+    min-height: 50vh;
+  }
+  button {
+    flex: 1 1 48%;
+  }
+}
   </style>
 </head>
 <body>
 <div class="page">
   <h1>
     Rodé Lajos - Hópehely generátor
-    <span class="version">v31</span>
+    <span class="version">v35</span>
   </h1>
 
   <div class="container">
@@ -802,6 +839,9 @@
       if (Math.abs(rxs) < 1e-9) {
         if (Math.abs(qpxr) > 1e-9) return;
 
+        // Collinear overlap: split both segments at overlap endpoints
+        if (rr < 1e-12 || ss < 1e-12) return;
+
         const t0 = ( (q.x - p.x) * r.x + (q.y - p.y) * r.y ) / rr;
         const t1 = ( (q.x + s.x - p.x) * r.x + (q.y + s.y - p.y) * r.y ) / rr;
 
@@ -814,11 +854,13 @@
 
         const u0 = ( (p.x - q.x) * s.x + (p.y - q.y) * s.y ) / ss;
         const u1 = ( (p.x + r.x - q.x) * s.x + (p.y + r.y - q.y) * s.y ) / ss;
+
         const umin = Math.max(0, Math.min(u0, u1));
         const umax = Math.min(1, Math.max(u0, u1));
         if (umax < -1e-9 || umin > 1 + 1e-9 || umax - umin < 1e-9) return;
 
         addParam(e2.splitTs, umin);
+        addParam(e2.splitTs, umax);
       } else {
         const t = (qmp.x * s.y - qmp.y * s.x) / rxs;
         const u = (qmp.x * r.y - qmp.y * r.x) / rxs;
@@ -874,56 +916,128 @@
       if (inside1 !== inside2) boundarySegments.push(seg);
     }
 
-    const pointKey = (x, y) => x.toFixed(4) + ',' + y.toFixed(4);
-    const adjacency = new Map();
+    // --- Build closed contours from boundary segments (robust, edge-based traversal) ---
+    const KEY_SCALE = 1e4; // 0.0001 unit quantization for stable vertex matching
+    const vKey = (x, y) => Math.round(x * KEY_SCALE) + ',' + Math.round(y * KEY_SCALE);
 
-    function addEdgeAdj(x0, y0, x1, y1) {
-      const k0 = pointKey(x0, y0);
-      const k1 = pointKey(x1, y1);
+    // Deduplicate undirected boundary segments (can happen due to numeric noise)
+    const seenSeg = new Set();
+    const verts = new Map();      // key -> { x, y, outs: [] }
+    const allDirEdges = [];       // list of directed edges for traversal
 
-      if (!adjacency.has(k0)) adjacency.set(k0, { pt: [x0, y0], neighbors: new Set() });
-      if (!adjacency.has(k1)) adjacency.set(k1, { pt: [x1, y1], neighbors: new Set() });
-
-      adjacency.get(k0).neighbors.add(k1);
-      adjacency.get(k1).neighbors.add(k0);
+    function getVert(k, x, y) {
+      let v = verts.get(k);
+      if (!v) {
+        v = { x, y, outs: [] };
+        verts.set(k, v);
+      }
+      return v;
     }
+
+    function addDirectedEdge(k0, x0, y0, k1, x1, y1) {
+      const from = getVert(k0, x0, y0);
+      const to   = getVert(k1, x1, y1);
+      const ang  = Math.atan2(to.y - from.y, to.x - from.x);
+      const e = {
+        fromK: k0, toK: k1,
+        fromPt: [from.x, from.y],
+        toPt: [to.x, to.y],
+        ang,
+        visited: false
+      };
+      from.outs.push(e);
+      allDirEdges.push(e);
+    }
+
     for (const seg of boundarySegments) {
-      addEdgeAdj(seg.x0, seg.y0, seg.x1, seg.y1);
+      const k0 = vKey(seg.x0, seg.y0);
+      const k1 = vKey(seg.x1, seg.y1);
+      const und = (k0 < k1) ? (k0 + '|' + k1) : (k1 + '|' + k0);
+      if (seenSeg.has(und)) continue;
+      seenSeg.add(und);
+
+      addDirectedEdge(k0, seg.x0, seg.y0, k1, seg.x1, seg.y1);
+      addDirectedEdge(k1, seg.x1, seg.y1, k0, seg.x0, seg.y0);
     }
 
-    const visited = new Set();
-    const contours = [];
+    // Sort outgoing edges around each vertex by angle
+    for (const v of verts.values()) {
+      v.outs.sort((a, b) => a.ang - b.ang);
+    }
 
-    for (const [key, node] of adjacency.entries()) {
-      if (visited.has(key)) continue;
+    function normAngle(a) {
+      while (a <= -Math.PI) a += 2 * Math.PI;
+      while (a >  Math.PI) a -= 2 * Math.PI;
+      return a;
+    }
+
+    function angleDiffCCW(fromAng, toAng) {
+      // minimal positive CCW turn from fromAng to toAng, in (0, 2π]
+      let d = normAngle(toAng - fromAng);
+      if (d <= 0) d += 2 * Math.PI;
+      return d;
+    }
+
+    function pickNextEdge(prevEdge) {
+      const v = verts.get(prevEdge.toK);
+      if (!v || !v.outs.length) return null;
+
+      // Incoming direction at the vertex is from current vertex back to previous vertex
+      const inAng = Math.atan2(prevEdge.fromPt[1] - prevEdge.toPt[1], prevEdge.fromPt[0] - prevEdge.toPt[0]);
+
+      let best = null;
+      let bestTurn = Infinity;
+
+      for (const e of v.outs) {
+        if (e.visited) continue;
+        const turn = angleDiffCCW(inAng, e.ang);
+        if (turn < bestTurn) {
+          bestTurn = turn;
+          best = e;
+        }
+      }
+      return best;
+    }
+
+    const contours = [];
+    const MAX_STEPS = allDirEdges.length + 10;
+
+    for (const startEdge of allDirEdges) {
+      if (startEdge.visited) continue;
 
       const contour = [];
-      let currentKey = key;
-      let prevKey = null;
+      let e = startEdge;
+      let steps = 0;
 
-      while (currentKey && !visited.has(currentKey)) {
-        visited.add(currentKey);
-        const currentNode = adjacency.get(currentKey);
-        contour.push(currentNode.pt);
+      // Start point
+      contour.push(e.fromPt.slice());
 
-        const neighbors = Array.from(currentNode.neighbors);
-        let nextKey = null;
-        for (const nk of neighbors) {
-          if (nk !== prevKey) {
-            nextKey = nk;
-            if (!visited.has(nk)) break;
-          }
-        }
-        prevKey = currentKey;
-        currentKey = nextKey;
-        if (!currentKey || currentKey === key) break;
+      while (e && !e.visited && steps < MAX_STEPS) {
+        e.visited = true;
+        contour.push(e.toPt.slice());
+
+        const next = pickNextEdge(e);
+        e = next;
+        steps++;
+        if (e && e.fromK === startEdge.fromK && e.toK === startEdge.toK) break;
       }
 
-      if (contour.length >= 3) {
-        if (contour[0] !== contour[contour.length - 1]) {
-          contour.push(contour[0].slice());
+      // Ensure closed loop
+      if (contour.length >= 4) {
+        const first = contour[0];
+        const last  = contour[contour.length - 1];
+        const d = Math.hypot(first[0] - last[0], first[1] - last[1]);
+        if (d > 1e-3) contour.push(first.slice());
+
+        // Remove tiny consecutive duplicates
+        const cleaned = [contour[0]];
+        for (let i = 1; i < contour.length; i++) {
+          const p = contour[i];
+          const q = cleaned[cleaned.length - 1];
+          if (Math.hypot(p[0] - q[0], p[1] - q[1]) > 1e-6) cleaned.push(p);
         }
-        contours.push(contour);
+
+        if (cleaned.length >= 4) contours.push(cleaned);
       }
     }
 
