@@ -2,7 +2,7 @@
 <html lang="hu">
 <head>
   <meta charset="UTF-8">
-  <title>Rodé Lajos - Hópehely generátor v35</title>
+  <title>Rodé Lajos - Hópehely generátor v43</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     * {
@@ -77,6 +77,24 @@
       font-size: 0.85rem;
       margin-bottom: 0.2rem;
     }
+
+    /* Két legördülő egymás mellett (Végforma + Lefutás) */
+    .dual-row {
+      display: flex;
+      gap: 0.6rem;
+      align-items: flex-end;
+    }
+    .dual-item {
+      flex: 1 1 0;
+      min-width: 0;
+    }
+    @media (max-width: 600px) {
+      .dual-row {
+        flex-direction: column;
+        align-items: stretch;
+      }
+    }
+
     .control-row {
       display: flex;
       align-items: center;
@@ -194,7 +212,7 @@
 <div class="page">
   <h1>
     Rodé Lajos - Hópehely generátor
-    <span class="version">v35</span>
+    <span class="version">v43</span>
   </h1>
 
   <div class="container">
@@ -234,15 +252,30 @@
         </div>
       </div>
 
+      
       <div class="control-group">
-        <label for="tipStyleSelect">Végforma</label>
-        <select id="tipStyleSelect">
-          <option value="straight">Egyenes</option>
-          <option value="tent">Háromszög</option>
-          <option value="trap">Trapéz</option>
-          <option value="hex">Hatszög</option>
-          <option value="Y">Y</option>
-        </select>
+        <div class="dual-row">
+          <div class="dual-item">
+            <label for="tipStyleSelect">Végforma</label>
+            <select id="tipStyleSelect">
+              <option value="straight">Egyenes</option>
+              <option value="tent">Háromszög</option>
+              <option value="trap">Trapéz</option>
+              <option value="hex">Hatszög</option>
+              <option value="Y">Y</option>
+            </select>
+          </div>
+
+          <div class="dual-item">
+            <label for="runoffSelect">Lefutás</label>
+            <select id="runoffSelect">
+              <option value="Oo.">Oo.</option>
+              <option value=".oO">.oO</option>
+              <option value="ooo">ooo</option>
+              <option value="oOo">oOo</option>
+            </select>
+          </div>
+        </div>
       </div>
 
       <div class="control-group">
@@ -375,11 +408,21 @@
     if (parts.length < 12) {
       throw new Error('Érvénytelen PEHELY kód: ' + codeString);
     }
-    const [
-      angleStr, ratioStr, spaceStr, redStr,
-      tipCode, tipScaleStr, tipOnlyFlag, tipCenterFlag, trunkFlag,
-      armsStr, minRectStr, growFlag
-    ] = parts;
+    // ÚJ (v43): Lefutás kód (a Végforma után) – visszafelé kompatibilis.
+    // Régi: angle-ratio-space-red-tip-tipScale-tipOnly-tipCenter-trunk-arms-minRect-grow
+    // Új:   angle-ratio-space-red-tip-runoff-tipScale-tipOnly-tipCenter-trunk-arms-minRect-grow
+    let angleStr, ratioStr, spaceStr, redStr;
+    let tipCode, runoffCode, tipScaleStr, tipOnlyFlag, tipCenterFlag, trunkFlag, armsStr, minRectStr, growFlag;
+    if (parts.length === 12) {
+      [angleStr, ratioStr, spaceStr, redStr,
+       tipCode, tipScaleStr, tipOnlyFlag, tipCenterFlag, trunkFlag,
+       armsStr, minRectStr, growFlag] = parts;
+      runoffCode = 'NE';
+    } else {
+      [angleStr, ratioStr, spaceStr, redStr,
+       tipCode, runoffCode, tipScaleStr, tipOnlyFlag, tipCenterFlag, trunkFlag,
+       armsStr, minRectStr, growFlag] = parts;
+    }
 
     const angle   = parseFloat(angleStr) || 0;
     const ratio   = parseFloat(ratioStr) || 0;
@@ -396,7 +439,17 @@
     const arms       = parseInt(armsStr, 10);
     const minRectMm  = parseFloat(minRectStr);
 
-    return {
+    
+    const runoff = (function(code){
+      switch ((code || '').toUpperCase()) {
+        case 'PO': return '.oO';
+        case 'NU': return 'ooo';
+        case 'VA': return 'oOo';
+        case 'NE':
+        default:   return 'Oo.';
+      }
+    })(runoffCode);
+return {
       branchAngleDeg:    angle,
       rectAspectPercent: ratio,
       spacingPercent:    spacing,
@@ -408,7 +461,8 @@
       showTrunk:         (trunkFlag     === 'Y'),
       armCount:          Number.isFinite(arms) ? arms : 6,
       minRectMm:         Number.isFinite(minRectMm) ? minRectMm : 0,
-      growSmallRects:    (growFlag === 'Y')
+      growSmallRects:    (growFlag === 'Y'),
+      runoff:            runoff
     };
   }
 
@@ -462,6 +516,24 @@
     const tipMode = params.tipMode;
     const tipScale = Number.isFinite(params.tipScale) ? params.tipScale : 1;
 
+    const runoffMode = params.runoff || 'Oo.';
+    const shrink = 1 - reduction;
+
+    // Lefutás: ugyanazt a logikát alkalmazzuk a törzs menti ágakra és az ágon belüli ágacskákra is.
+    // idx: 1..count (belsőtől kifelé)
+    function applyRunoff(baseLen, idx, count) {
+      if (count <= 1) return baseLen; // oOo esetén is "ooo"
+      if (runoffMode === 'ooo') return baseLen;
+      if (runoffMode === '.oO') return baseLen * Math.pow(shrink, (count - idx));
+      if (runoffMode === 'oOo') {
+        const peak = Math.floor((count + 1) / 2); // párosnál az "belsőbb" középső
+        const d = Math.abs(idx - peak);
+        return baseLen * Math.pow(shrink, d);
+      }
+      // 'Oo.' (alapértelmezett)
+      return baseLen * Math.pow(shrink, (idx - 1));
+    }
+
     segments.push({
       bx: 0, by: 0,
       length: trunkLength,
@@ -473,8 +545,6 @@
     });
 
     const count = Math.floor(100 / spacing);
-    if (count <= 0) return segments;
-
     const dTrunk = { x: Math.cos(trunkAngle), y: Math.sin(trunkAngle) };
     const signs = [+1, -1];
 
@@ -485,10 +555,9 @@
       const baseX = dTrunk.x * posOnTrunk;
       const baseY = dTrunk.y * posOnTrunk;
 
-      let branchLength;
-      if (reduction === 0) branchLength = trunkLength;
-      else branchLength = trunkLength * Math.pow(1 - reduction, i);
-
+      // Törzs -> ág lefutás: az i=1 pozíció legyen a "bázis" méret (a korábbi viselkedéssel kompatibilis).
+      const baseBranchLen = trunkLength * shrink; // korábbi i=1 méret
+      const branchLength = applyRunoff(baseBranchLen, i, count);
       const branchWidth = branchLength * aspect;
 
       for (const sign of signs) {
@@ -512,10 +581,9 @@
           const twigBaseX = baseX + dBranch.x * posOnBranch;
           const twigBaseY = baseY + dBranch.y * posOnBranch;
 
-          let twigLength;
-          if (reduction === 0) twigLength = branchLength;
-          else twigLength = branchLength * Math.pow(1 - reduction, j);
-
+          // Ág -> ágacska lefutás: bázis a j=1 méret.
+          const baseTwigLen = branchLength * shrink; // korábbi j=1 méret
+          const twigLength = applyRunoff(baseTwigLen, j, count);
           const twigWidth = twigLength * aspect;
 
           for (const sign2 of signs) {
@@ -1044,10 +1112,12 @@
     return contours;
   }
 
-  function computeContoursForCode(codeString) {
-    if (geometryCache.has(codeString)) return geometryCache.get(codeString);
+  function computeContoursForCode(codeString, paramsOverride = null) {
+    const params = paramsOverride || paramsFromCode(codeString);
+    const runoffKey = (params && params.runoff) ? params.runoff : 'Oo.';
+    const cacheKey = `${codeString}|RUNOFF:${runoffKey}`;
+    if (geometryCache.has(cacheKey)) return geometryCache.get(cacheKey);
 
-    const params = paramsFromCode(codeString);
     const segments = buildSnowflakeSegments(params);
     if (!segments.length) return null;
 
@@ -1142,12 +1212,11 @@
     }));
 
     const result = { contoursWithFlags };
-    geometryCache.set(codeString, result);
+    geometryCache.set(cacheKey, result);
     return result;
   }
 
-  function computePolysForCode(codeString) {
-    const params = paramsFromCode(codeString);
+  function computePolysForParams(params) {
     const segments = buildSnowflakeSegments(params);
     if (!segments.length) return null;
 
@@ -1222,6 +1291,12 @@
     };
   }
 
+  function computePolysForCode(codeString) {
+    const params = paramsFromCode(codeString);
+    return computePolysForParams(params);
+  }
+
+
   // ====== JPG komment (PEHELY-kód) ======
   function addJpegCommentToArrayBuffer(arrayBuffer, comment) {
     const bytes = new Uint8Array(arrayBuffer);
@@ -1280,8 +1355,9 @@
     return null;
   }
 
-  function createJpegBlobForCode(code) {
-    const polyData = computePolysForCode(code);
+  function createJpegBlobForCode(code, paramsOverride = null) {
+    const params = paramsOverride || paramsFromCode(code);
+    const polyData = computePolysForParams(params);
     if (!polyData) return Promise.resolve(null);
     const { polys, minX, maxX, minY, maxY } = polyData;
 
@@ -1359,6 +1435,7 @@
   // ====== UI-hez tartozó logika ======
   let currentCode = null;
   let currentPolyData = null;
+  let currentParams = null;
   let showOutline = false; // alapból kontúr kikapcsolva
 
   function syncInputPair(sliderId, numberId, onChange) {
@@ -1392,6 +1469,7 @@
     const growSmall   = document.getElementById('growSmallCheckbox').checked;
     const tipScaleVal = parseFloat(document.getElementById('tipScaleSlider').value);
     const tipStyleVal = document.getElementById('tipStyleSelect').value;
+    const runoffVal = (document.getElementById('runoffSelect') && document.getElementById('runoffSelect').value) ? document.getElementById('runoffSelect').value : 'Oo.';
 
     const tipOnly  = document.getElementById('tipOnlyCheckbox').checked;
     const tipCenter= document.getElementById('tipCenterCheckbox').checked;
@@ -1415,6 +1493,7 @@
       showTrunk,
       armCount:          Number.isFinite(armsVal)    ? armsVal    : 6,
       minRectMm:         Number.isFinite(minRectVal) ? minRectVal : 3.0,
+      runoff:           runoffVal,
       growSmallRects:    growSmall
     };
   }
@@ -1442,6 +1521,11 @@
     else if (p.tipMode === 4) tipVal = 'trap';
     document.getElementById('tipStyleSelect').value = tipVal;
 
+    // Lefutás (nincs a kódban, ezért alapértelmezett érték)
+    const rv = (p && p.runoff) ? p.runoff : 'Oo.';
+    const rs = document.getElementById('runoffSelect');
+    if (rs) rs.value = rv;
+
     document.getElementById('tipOnlyCheckbox').checked   = !!p.tipOnly;
     document.getElementById('tipCenterCheckbox').checked = !!p.tipAtCenter;
     document.getElementById('showTrunkCheckbox').checked = !!p.showTrunk;
@@ -1460,6 +1544,17 @@
     else if (p.tipMode === 3) tipCode = '6S';
     else if (p.tipMode === 4) tipCode = '4S';
 
+    // Lefutás kód (v43): a Végforma után
+    const runoffCode = (function(mode){
+      switch (mode) {
+        case '.oO': return 'PO';
+        case 'ooo': return 'NU';
+        case 'oOo': return 'VA';
+        case 'Oo.':
+        default:    return 'NE';
+      }
+    })(p.runoff || 'Oo.');
+
     const tipScaleStr   = (Number.isFinite(p.tipScale) ? p.tipScale : 1.0).toFixed(2);
     const tipOnlyFlag   = p.tipOnly     ? 'Y' : 'N';
     const tipCenterFlag = p.tipAtCenter ? 'Y' : 'N';
@@ -1469,14 +1564,15 @@
     const minRectStr  = (Number.isFinite(p.minRectMm) ? p.minRectMm : 0).toFixed(1);
     const growFlag    = p.growSmallRects ? 'Y' : 'N';
 
-    return `${angleStr}-${ratioStr}-${spacingStr}-${redStr}-${tipCode}-${tipScaleStr}-${tipOnlyFlag}-${tipCenterFlag}-${trunkFlag}-${armsStr}-${minRectStr}-${growFlag}`;
+    return `${angleStr}-${ratioStr}-${spacingStr}-${redStr}-${tipCode}-${runoffCode}-${tipScaleStr}-${tipOnlyFlag}-${tipCenterFlag}-${trunkFlag}-${armsStr}-${minRectStr}-${growFlag}`;
   }
 
   function recomputeFromUI() {
     const p = getParamsFromUI();
     const code = buildCodeFromParams(p);
+    currentParams = p;
     currentCode = code;
-    currentPolyData = computePolysForCode(code);
+    currentPolyData = computePolysForParams(p);
     redraw();
   }
 
@@ -1557,6 +1653,10 @@
     const tv = tipOptions[randInt(0, tipOptions.length - 1)];
     document.getElementById('tipStyleSelect').value = tv;
 
+    // Lefutás (most már a véletlen paraméterek része)
+    const runoffOptions = ['Oo.','.oO','ooo','oOo'];
+    document.getElementById('runoffSelect').value = runoffOptions[randInt(0, runoffOptions.length - 1)];
+
     // Közép (random)
     document.getElementById('tipCenterCheckbox').checked = (Math.random() < 0.5);
 
@@ -1575,24 +1675,53 @@
       if (!currentCode) return;
     }
 
-    const geom = computeContoursForCode(currentCode);
+    const paramsForExport = currentParams || getParamsFromUI();
+    const geom = computeContoursForCode(currentCode, paramsForExport);
     if (!geom || !geom.contoursWithFlags || !geom.contoursWithFlags.length) {
       alert('Nincs exportálható geometria (lehet, hogy minden eltűnt a min. vastagság szűrés miatt).');
       return;
     }
 
-    // DXF generálása (LWPOLYLINE, külső kontúr fekete (7), belsők kék (5))
+    const baseName = `PEHELY-${currentCode}`;
+
+    // DXF generálása BLOKKAL (LWPOLYLINE; a pehely egy BLOCK, beszúrási pont: geometriai közép)
     let dxf = '';
     const NL = '\r\n';
     function add(code, value) {
       dxf += code + NL + value + NL;
     }
 
+    // geometriai közép (bbox-közép) a teljes pehelyre
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const c of geom.contoursWithFlags) {
+      const unique = c.points.slice(0, c.points.length - 1);
+      for (const [x, y] of unique) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+
+    const blockName = 'PEHELY';
+
     add(0, 'SECTION');
     add(2, 'HEADER');
     add(0, 'ENDSEC');
+
+    // BLOCKS szekció: a geometriát a (0,0) köré központosítjuk, így az INSERT pont a geometriai közép
     add(0, 'SECTION');
-    add(2, 'ENTITIES');
+    add(2, 'BLOCKS');
+
+    add(0, 'BLOCK');
+    add(8, '0');
+    add(2, blockName);
+    add(70, 0);
+    add(10, 0); add(20, 0); add(30, 0);
+    add(3, blockName);
+    add(1, '');
 
     for (const c of geom.contoursWithFlags) {
       const unique = c.points.slice(0, c.points.length - 1);
@@ -1600,25 +1729,38 @@
 
       add(0, 'LWPOLYLINE');
       add(8, '0');
-      add(62, c.isOuter ? 7 : 5); // 7=fekete, 5=kék
+      add(62, c.isOuter ? 7 : 5);
       add(90, unique.length);
       add(70, 1); // zárt
 
-      for (const [x,y] of unique) {
-        add(10, x.toFixed(4));
-        add(20, y.toFixed(4));
+      for (const [x, y] of unique) {
+        add(10, (x - cx).toFixed(4));
+        add(20, (y - cy).toFixed(4));
       }
     }
+
+    add(0, 'ENDBLK');
+    add(0, 'ENDSEC');
+
+    // ENTITIES: a blokk beszúrása az origóba
+    add(0, 'SECTION');
+    add(2, 'ENTITIES');
+
+    add(0, 'INSERT');
+    add(8, '0');
+    add(2, blockName);
+    add(10, 0); add(20, 0); add(30, 0);
+    add(41, 1); add(42, 1); add(43, 1);
+    add(50, 0);
 
     add(0, 'ENDSEC');
     add(0, 'EOF');
 
-    const baseName = 'PEHELY-' + currentCode;
-
+    // DXF mentése
     await saveFileWithPickerOrDownload(baseName + '.dxf', 'application/dxf', dxf);
 
-    // JPG generálása és mentése
-    const jpgBlob = await createJpegBlobForCode(currentCode);
+// JPG generálása és mentése
+    const jpgBlob = await createJpegBlobForCode(currentCode, paramsForExport);
     if (jpgBlob) {
       await saveFileWithPickerOrDownload(baseName + '.jpg', 'image/jpeg', jpgBlob);
     } else {
@@ -1651,7 +1793,8 @@
       const params = paramsFromCode(code);
       applyParamsToUI(params);
       currentCode = code;
-      currentPolyData = computePolysForCode(code);
+      currentParams = getParamsFromUI(); // runoff is UI-only
+      currentPolyData = computePolysForParams(currentParams);
       redraw();
     } catch (e) {
       console.warn('Betöltés megszakítva vagy hiba:', e);
@@ -1676,6 +1819,8 @@
     document.getElementById('growSmallCheckbox')
       .addEventListener('change', recomputeFromUI);
     document.getElementById('tipStyleSelect')
+      .addEventListener('change', recomputeFromUI);
+    document.getElementById('runoffSelect')
       .addEventListener('change', recomputeFromUI);
     document.getElementById('tipOnlyCheckbox')
       .addEventListener('change', recomputeFromUI);

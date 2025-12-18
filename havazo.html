@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Rodé Lajos - HAVAZO v15</title>
+  <title>Rodé Lajos - HAVAZO v43</title>
   <style>
     * {
       box-sizing: border-box;
@@ -242,7 +242,7 @@
 </head>
 <body>
 <div class="page">
-  <h1>Rodé Lajos - HAVAZO <span class="version">v15</span></h1>
+  <h1>Rodé Lajos - HAVAZO <span class="version">v43</span></h1>
 
   <div class="top-bar">
     <div class="folder-info">
@@ -250,6 +250,9 @@
       <strong id="currentFolderName">Letöltések (alapértelmezett – válassz mappát)</strong>
     </div>
     <button id="chooseFolderBtn" class="secondary">Mappa kijelölése</button>
+      <input id="folderFileInput" type="file" accept="image/jpeg" multiple webkitdirectory directory style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0">
+      <input id="jsonFileInput" type="file" accept="application/json,.json" style="display:none">
+
   </div>
 
   <div class="cards-container">
@@ -353,11 +356,19 @@
     if (parts.length < 12) {
       throw new Error('Érvénytelen PEHELY kód: ' + codeString);
     }
-    const [
-      angleStr, ratioStr, spaceStr, redStr,
-      tipCode, tipScaleStr, tipOnlyFlag, tipCenterFlag, trunkFlag,
-      armsStr, minRectStr, growFlag
-    ] = parts;
+    // ÚJ (v43): Lefutás kód (a Végforma után) – visszafelé kompatibilis.
+    let angleStr, ratioStr, spaceStr, redStr;
+    let tipCode, runoffCode, tipScaleStr, tipOnlyFlag, tipCenterFlag, trunkFlag, armsStr, minRectStr, growFlag;
+    if (parts.length === 12) {
+      [angleStr, ratioStr, spaceStr, redStr,
+       tipCode, tipScaleStr, tipOnlyFlag, tipCenterFlag, trunkFlag,
+       armsStr, minRectStr, growFlag] = parts;
+      runoffCode = 'NE';
+    } else {
+      [angleStr, ratioStr, spaceStr, redStr,
+       tipCode, runoffCode, tipScaleStr, tipOnlyFlag, tipCenterFlag, trunkFlag,
+       armsStr, minRectStr, growFlag] = parts;
+    }
 
     const angle   = parseFloat(angleStr) || 0;
     const ratio   = parseFloat(ratioStr) || 0;
@@ -374,7 +385,17 @@
     const arms       = parseInt(armsStr, 10);
     const minRectMm  = parseFloat(minRectStr);
 
-    return {
+    
+    const runoff = (function(code){
+      switch ((code || '').toUpperCase()) {
+        case 'PO': return '.oO';
+        case 'NU': return 'ooo';
+        case 'VA': return 'oOo';
+        case 'NE':
+        default:   return 'Oo.';
+      }
+    })(runoffCode);
+return {
       branchAngleDeg:    angle,
       rectAspectPercent: ratio,
       spacingPercent:    spacing,
@@ -386,7 +407,8 @@
       showTrunk:         (trunkFlag     === 'Y'),
       armCount:          Number.isFinite(arms) ? arms : 6,
       minRectMm:         Number.isFinite(minRectMm) ? minRectMm : 0,
-      growSmallRects:    (growFlag === 'Y')
+      growSmallRects:    (growFlag === 'Y'),
+      runoff:            runoff
     };
   }
 
@@ -439,7 +461,21 @@
     const spacing = params.spacingPercent;
     const angleOffset = params.branchAngleDeg * Math.PI / 180.0;
     const reduction = Math.max(0, Math.min(0.95, params.reductionPercent / 100.0));
-    const tipMode = params.tipMode;
+    
+    const shrink = 1 - reduction;
+    const runoffMode = params.runoff || 'Oo.';
+    function applyRunoff(baseLen, idx, count) {
+      if (count <= 1) return baseLen;
+      if (runoffMode === 'ooo') return baseLen;
+      if (runoffMode === '.oO') return baseLen * Math.pow(shrink, (count - idx));
+      if (runoffMode === 'oOo') {
+        const peak = Math.floor((count + 1) / 2);
+        const d = Math.abs(idx - peak);
+        return baseLen * Math.pow(shrink, d);
+      }
+      return baseLen * Math.pow(shrink, (idx - 1));
+    }
+const tipMode = params.tipMode;
     const tipScale = Number.isFinite(params.tipScale) ? params.tipScale : 1;
 
     segments.push({
@@ -464,13 +500,8 @@
 
       const baseX = dTrunk.x * posOnTrunk;
       const baseY = dTrunk.y * posOnTrunk;
-
-      let branchLength;
-      if (reduction === 0) {
-        branchLength = trunkLength;
-      } else {
-        branchLength = trunkLength * Math.pow(1 - reduction, i);
-      }
+      const baseBranchLen = trunkLength * shrink;
+      const branchLength = applyRunoff(baseBranchLen, i, count);
       const branchWidth = branchLength * aspect;
 
       for (const sign of signs) {
@@ -493,13 +524,8 @@
 
           const twigBaseX = baseX + dBranch.x * posOnBranch;
           const twigBaseY = baseY + dBranch.y * posOnBranch;
-
-          let twigLength;
-          if (reduction === 0) {
-            twigLength = branchLength;
-          } else {
-            twigLength = branchLength * Math.pow(1 - reduction, j);
-          }
+          const baseTwigLen = branchLength * shrink;
+          const twigLength = applyRunoff(baseTwigLen, j, count);
           const twigWidth = twigLength * aspect;
 
           for (const sign2 of signs) {
@@ -1351,10 +1377,22 @@
     const arrayBuffer = await file.arrayBuffer();
     return parseCodeFromJpegArrayBuffer(arrayBuffer);
   }
+  async function readCodeFromJpegFile(file) {
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      return parseCodeFromJpegArrayBuffer(arrayBuffer);
+    } catch (e) {
+      console.warn('Nem sikerült a JPG beolvasása:', e);
+      return null;
+    }
+  }
+
 
   // ====== HAVAZO adatszerkezetek ======
 
   let currentDirectoryHandle = null;
+  let currentSelectedFiles = null; // File[] fallback (ha nincs / nem működik showDirectoryPicker)
+
   const cardsGrid = document.getElementById('cardsGrid');
   const emptyMessage = document.getElementById('emptyMessage');
   const currentFolderNameEl = document.getElementById('currentFolderName');
@@ -1488,21 +1526,152 @@
   // ====== Mappa beolvasása ======
 
   async function pickFolderAndScan() {
-    if (!window.showDirectoryPicker) {
-      alert('A mappa kijelöléséhez szükséges File System Access API nem érhető el ebben a böngészőben.');
+    const folderInput = document.getElementById('folderFileInput');
+
+    if (window.showDirectoryPicker) {
+      try {
+        const handle = await window.showDirectoryPicker();
+        currentDirectoryHandle = handle;
+        currentSelectedFiles = null;
+        currentFolderNameEl.textContent = handle.name;
+        await scanSources();
+        return;
+      } catch (e) {
+        console.warn('Mappa kijelölése sikertelen (fallback következik):', e);
+      }
+    }
+
+    if (folderInput) {
+      folderInput.value = '';
+      folderInput.click();
       return;
     }
+
+    alert('A böngésződben nem érhető el a mappa kiválasztása.');
+  }
+
+  
+  function cleanupObjectUrls() {
     try {
-      const handle = await window.showDirectoryPicker();
-      currentDirectoryHandle = handle;
-      currentFolderNameEl.textContent = handle.name;
-      await scanCurrentFolder();
+      for (const it of items) {
+        if (it && typeof it.imgURL === 'string' && it.imgURL.startsWith('blob:')) {
+          URL.revokeObjectURL(it.imgURL);
+        }
+      }
     } catch (e) {
-      console.warn('Mappa kijelölése megszakítva vagy hiba:', e);
+      // no-op
     }
   }
 
-  async function scanCurrentFolder() {
+  async function scanSelectedFiles() {
+    items = [];
+    itemsByCode.clear();
+    cardsGrid.innerHTML = '';
+    emptyMessage.style.display = 'block';
+
+    if (!currentSelectedFiles || !currentSelectedFiles.length) {
+      updateSummaryCounts();
+      return;
+    }
+
+    try {
+      for (const file of currentSelectedFiles) {
+        if (!file || !(file.name || '').toLowerCase().endsWith('.jpg')) continue;
+
+        const code = await readCodeFromJpegFile(file);
+        if (!code) continue;
+
+        if (itemsByCode.has(code)) continue;
+
+        const url = URL.createObjectURL(file);
+        const qty = quantitiesFromJson.has(code) ? quantitiesFromJson.get(code) : 0;
+
+        const item = {
+          code,
+          fileHandle: null,
+          fileName: file.name,
+          imgURL: url,
+          quantity: qty,
+          isVirtual: false,
+          cardElem: null,
+          qtyInput: null
+        };
+        items.push(item);
+        itemsByCode.set(code, item);
+      }
+    } catch (e) {
+      console.error('Hiba a fájlok beolvasása közben:', e);
+    }
+
+    // Régi lista alapján hiányzók virtuális generálása (ugyanúgy, mint mappánál)
+    const codesInJson = Array.from(quantitiesFromJson.keys());
+    for (const code of codesInJson) {
+      if (!itemsByCode.has(code)) {
+        try {
+          const blob = await createJpegBlobForCode(code);
+          if (!blob) continue;
+          const url = URL.createObjectURL(blob);
+          const qty = quantitiesFromJson.get(code) || 0;
+          const item = {
+            code,
+            fileHandle: null,
+            fileName: null,
+            imgURL: url,
+            quantity: qty,
+            isVirtual: true,
+            cardElem: null,
+            qtyInput: null
+          };
+          items.push(item);
+          itemsByCode.set(code, item);
+        } catch (e) {
+          console.error('Virtuális kép generálási hiba:', e);
+        }
+      }
+    }
+
+    refreshCardsGrid();
+  }
+
+  async function scanSources() {
+    cleanupObjectUrls();
+    if (currentDirectoryHandle) return scanCurrentFolder();
+    return scanSelectedFiles();
+  }
+
+  function applyQuantitiesFromJsonData(data) {
+    quantitiesFromJson.clear();
+    if (data && Array.isArray(data.items)) {
+      for (const it of data.items) {
+        if (!it || typeof it.code !== 'string') continue;
+        const count = Number.isFinite(it.count) ? it.count : 0;
+        quantitiesFromJson.set(it.code, count);
+      }
+    }
+  }
+
+  function onFolderFilesSelected(evt) {
+    const files = Array.from(evt.target.files || []).filter(f => (f.name || '').toLowerCase().endsWith('.jpg'));
+    currentSelectedFiles = files;
+    currentDirectoryHandle = null;
+    currentFolderNameEl.textContent = files.length ? `Kijelölt fájlok (${files.length})` : '—';
+    scanSources();
+  }
+
+  function onJsonFileSelected(evt) {
+    const file = (evt.target.files && evt.target.files[0]) ? evt.target.files[0] : null;
+    if (!file) return;
+    file.text().then(text => {
+      const data = JSON.parse(text);
+      applyQuantitiesFromJsonData(data);
+      scanSources();
+    }).catch(e => {
+      console.error('JSON beolvasási hiba:', e);
+      alert('Nem sikerült beolvasni a JSON-t.');
+    });
+  }
+async function scanCurrentFolder() {
+    cleanupObjectUrls();
     items = [];
     itemsByCode.clear();
     cardsGrid.innerHTML = '';
@@ -1573,34 +1742,36 @@
   // ====== Lista betöltése (JSON) ======
 
   async function loadListFromJson() {
-    if (!window.showOpenFilePicker) {
-      alert('A lista betöltéséhez szükséges File System Access API nem érhető el ebben a böngészőben.');
+    const jsonInput = document.getElementById('jsonFileInput');
+
+    if (window.showOpenFilePicker) {
+      try {
+        const [handle] = await window.showOpenFilePicker({
+          types: [{
+            description: 'HAVAZO lista (JSON)',
+            accept: { 'application/json': ['.json'] }
+          }]
+        });
+        const file = await handle.getFile();
+        const text = await file.text();
+        const data = JSON.parse(text);
+
+        applyQuantitiesFromJsonData(data);
+        await scanSources();
+      } catch (e) {
+        console.warn('Lista betöltése megszakítva vagy hiba:', e);
+      }
       return;
     }
-    try {
-      const [handle] = await window.showOpenFilePicker({
-        types: [{
-          description: 'HAVAZO lista (JSON)',
-          accept: { 'application/json': ['.json'] }
-        }]
-      });
-      const file = await handle.getFile();
-      const text = await file.text();
-      const data = JSON.parse(text);
 
-      quantitiesFromJson.clear();
-      if (data && Array.isArray(data.items)) {
-        for (const it of data.items) {
-          if (!it || typeof it.code !== 'string') continue;
-          const count = Number.isFinite(it.count) ? it.count : 0;
-          quantitiesFromJson.set(it.code, count);
-        }
-      }
-
-      await scanCurrentFolder();
-    } catch (e) {
-      console.warn('Lista betöltése megszakítva vagy hiba:', e);
+    // Fallback: sima file input
+    if (jsonInput) {
+      jsonInput.value = '';
+      jsonInput.click();
+      return;
     }
+
+    alert('A böngésződben nem érhető el a JSON betöltése.');
   }
 
   // ====== Hiányzó képek generálása ======
@@ -1728,65 +1899,110 @@
       flakeData.push({ code, count, contours, minX, maxX, minY, maxY, width, height });
     }
 
-    let dxfString = '';
+        let dxfString = '';
     if (totalCount > 0 && flakeData.length > 0) {
       const gap = 2.0; // mm
-      const cellSize = Math.max(maxWidth, maxHeight) + 2*gap;
-
+      const cellSize = Math.max(maxWidth, maxHeight) + 2 * gap;
       const cols = Math.ceil(Math.sqrt(totalCount));
 
       const NL = '\r\n';
       function add(code, value) {
         dxfString += code + NL + value + NL;
       }
+
+      // Stabil, rövid blokk-név (DXF barát) a kódból
+      function fnv1a36(str) {
+        let h = 2166136261;
+        for (let i = 0; i < str.length; i++) {
+          h ^= str.charCodeAt(i);
+          h = Math.imul(h, 16777619);
+        }
+        return (h >>> 0).toString(36);
+      }
+      function blockNameForCode(code) {
+        return ('P' + fnv1a36(code)).toUpperCase();
+      }
+
       add(0, 'SECTION');
       add(2, 'HEADER');
       add(0, 'ENDSEC');
+
+      // ===== BLOCKS: minden hópehely külön BLOCK, (0,0)-ba központosítva =====
+      add(0, 'SECTION');
+      add(2, 'BLOCKS');
+
+      const blockNames = new Map(); // code -> blockName
+      for (const flake of flakeData) {
+        const blockName = blockNameForCode(flake.code);
+        blockNames.set(flake.code, blockName);
+
+        const cx = (flake.minX + flake.maxX) / 2;
+        const cy = (flake.minY + flake.maxY) / 2;
+
+        add(0, 'BLOCK');
+        add(8, '0');
+        add(2, blockName);
+        add(70, 0);
+        add(10, 0); add(20, 0); add(30, 0);
+        add(3, blockName);
+        add(1, '');
+
+        for (const c of flake.contours) {
+          const unique = c.points.slice(0, c.points.length - 1);
+          if (unique.length < 3) continue;
+
+          add(0, 'LWPOLYLINE');
+          add(8, '0');
+          add(62, c.isOuter ? 7 : 5);
+          add(90, unique.length);
+          add(70, 1); // zárt
+
+          for (const [x, y] of unique) {
+            add(10, (x - cx).toFixed(4));
+            add(20, (y - cy).toFixed(4));
+          }
+        }
+
+        add(0, 'ENDBLK');
+      }
+
+      add(0, 'ENDSEC');
+
+      // ===== ENTITIES: INSERT-ek rácsban, a beszúrási pont a cella közepe =====
       add(0, 'SECTION');
       add(2, 'ENTITIES');
 
       let index = 0;
       for (const flake of flakeData) {
-        const { count, contours, minX, maxX, minY, maxY } = flake;
-        const cx = (minX + maxX) / 2;
-        const cy = (minY + maxY) / 2;
-
-        for (let k = 0; k < count; k++) {
+        const blockName = blockNames.get(flake.code);
+        for (let i = 0; i < flake.count; i++) {
           const row = Math.floor(index / cols);
           const col = index % cols;
-          index++;
 
           const baseX = col * cellSize;
-          const baseY = row * cellSize;
+          const baseY = -row * cellSize;
+
           const cxCell = baseX + cellSize / 2;
           const cyCell = baseY + cellSize / 2;
 
-          const dx = cxCell - cx;
-          const dy = cyCell - cy;
+          add(0, 'INSERT');
+          add(8, '0');
+          add(2, blockName);
+          add(10, cxCell.toFixed(4));
+          add(20, cyCell.toFixed(4));
+          add(30, 0);
+          add(41, 1); add(42, 1); add(43, 1);
+          add(50, 0);
 
-          for (const c of contours) {
-            const translated = translateContour(c.points, dx, dy);
-            const unique = translated.slice(0, translated.length - 1);
-            if (unique.length < 3) continue;
-
-            add(0, 'LWPOLYLINE');
-            add(8, '0');
-            add(62, c.isOuter ? 7 : 5);
-            add(90, unique.length);
-            add(70, 1); // zárt
-
-            for (const [x,y] of unique) {
-              add(10, x.toFixed(4));
-              add(20, y.toFixed(4));
-            }
-          }
+          index++;
         }
       }
+
       add(0, 'ENDSEC');
       add(0, 'EOF');
     }
 
-    const now = new Date();
+const now = new Date();
     const baseName = 'HAVAZO_' + formatTimestampForName(now);
 
     if (dxfString) {
@@ -1794,7 +2010,7 @@
     }
 
     const jsonData = {
-      version: 'HAVAZO_V15',
+      version: 'HAVAZO_V43',
       generatedAt: now.toISOString(),
       items: codesWithCounts
     };
@@ -1808,6 +2024,8 @@
   window.addEventListener('load', () => {
     document.getElementById('chooseFolderBtn')
       .addEventListener('click', pickFolderAndScan);
+    document.getElementById('folderFileInput').addEventListener('change', onFolderFilesSelected);
+    document.getElementById('jsonFileInput').addEventListener('change', onJsonFileSelected);
     document.getElementById('loadListBtn')
       .addEventListener('click', loadListFromJson);
     document.getElementById('generateMissingBtn')
