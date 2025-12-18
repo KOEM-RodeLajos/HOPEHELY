@@ -2,7 +2,7 @@
 <html lang="hu">
 <head>
   <meta charset="UTF-8">
-  <title>Rodé Lajos - Hópehely generátor v48</title>
+  <title>Rodé Lajos - Hópehely generátor v53</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     * {
@@ -212,7 +212,7 @@
 <div class="page">
   <h1>
     Rodé Lajos - Hópehely generátor
-    <span class="version">v48</span>
+    <span class="version">v53</span>
   </h1>
 
   <div class="container">
@@ -355,8 +355,34 @@
   </div>
 </div>
 
+<script src="./pehely-core_v53.js"></script>
+
 <script>
   'use strict';
+  // ====== PehelyCore (közös algoritmus modul) ======
+  const PC = window.PehelyCore;
+  if (!PC) {
+    alert('Hiányzik a pehely-core (JS) (tedd a HTML-ek mellé ugyanabba a mappába).');
+    throw new Error('PehelyCore hiányzik');
+  }
+  const {
+    paramsFromCode,
+    buildCodeFromParams,
+    buildSingleTreeSegments,
+    buildSnowflakeSegments,
+    makeRectFromBase,
+    segmentToPolys,
+    computePolysForParams,
+    computePolysForCode,
+    buildLaserContoursExact,
+    computeContoursForParams,
+    computeContoursForCode: coreComputeContoursForCode,
+    addJpegCommentToArrayBuffer,
+    createJpegBlobForCode,
+    parseCodeFromJpegArrayBuffer
+  } = PC;
+
+
 
   // ====== Általános segédek (mentés) ======
   function downloadBlob(blob, filename) {
@@ -461,714 +487,38 @@
   const DXF_TARGET_SIZE = 100.0; // mm
   const geometryCache = new Map(); // code -> { contoursWithFlags }
 
-  function paramsFromCode(codeString) {
-    const parts = codeString.split('-');
-    if (parts.length < 12) {
-      throw new Error('Érvénytelen PEHELY kód: ' + codeString);
-    }
-    // ÚJ (v48): Lefutás kód (a Végforma után) – visszafelé kompatibilis.
-    // Régi: angle-ratio-space-red-tip-tipScale-tipOnly-tipCenter-trunk-arms-minRect-grow
-    // Új:   angle-ratio-space-red-tip-runoff-tipScale-tipOnly-tipCenter-trunk-arms-minRect-grow
-    let angleStr, ratioStr, spaceStr, redStr;
-    let tipCode, runoffCode, tipScaleStr, tipOnlyFlag, tipCenterFlag, trunkFlag, armsStr, minRectStr, growFlag;
-    if (parts.length === 12) {
-      [angleStr, ratioStr, spaceStr, redStr,
-       tipCode, tipScaleStr, tipOnlyFlag, tipCenterFlag, trunkFlag,
-       armsStr, minRectStr, growFlag] = parts;
-      runoffCode = 'NE';
-    } else {
-      [angleStr, ratioStr, spaceStr, redStr,
-       tipCode, runoffCode, tipScaleStr, tipOnlyFlag, tipCenterFlag, trunkFlag,
-       armsStr, minRectStr, growFlag] = parts;
-    }
+  // [KISZERVEZVE pehely-core.js-be] paramsFromCode
 
-    const angle   = parseFloat(angleStr) || 0;
-    const ratio   = parseFloat(ratioStr) || 0;
-    const spacing = parseFloat(spaceStr) || 0;
-    const red     = parseFloat(redStr)   || 0;
 
-    let tipMode = 0;
-    if      (tipCode === '3S') tipMode = 1;
-    else if (tipCode === 'YY') tipMode = 2;
-    else if (tipCode === '6S') tipMode = 3;
-    else if (tipCode === '4S') tipMode = 4;
+  // [KISZERVEZVE pehely-core.js-be] makeRectFromBase
 
-    const tipScale   = parseFloat(tipScaleStr);
-    const arms       = parseInt(armsStr, 10);
-    const minRectMm  = parseFloat(minRectStr);
 
-    
-    const runoff = (function(code){
-      switch ((code || '').toUpperCase()) {
-        case 'PO': return '.oO';
-        case 'NU': return 'ooo';
-        case 'VA': return 'oOo';
-        case 'NE':
-        default:   return 'Oo.';
-      }
-    })(runoffCode);
-return {
-      branchAngleDeg:    angle,
-      rectAspectPercent: ratio,
-      spacingPercent:    spacing,
-      reductionPercent:  red,
-      tipMode,
-      tipScale:          Number.isFinite(tipScale) ? tipScale : 1,
-      tipOnly:           (tipOnlyFlag   === 'Y'),
-      tipAtCenter:       (tipCenterFlag === 'Y'),
-      showTrunk:         (trunkFlag     === 'Y'),
-      armCount:          Number.isFinite(arms) ? arms : 6,
-      minRectMm:         Number.isFinite(minRectMm) ? minRectMm : 0,
-      growSmallRects:    (growFlag === 'Y'),
-      runoff:            runoff
-    };
-  }
+  // [KISZERVEZVE pehely-core.js-be] scalePolygon
 
-  function makeRectFromBase(bx, by, length, width, angleRad) {
-    const d = { x: Math.cos(angleRad), y: Math.sin(angleRad) };
-    const n = { x: -Math.sin(angleRad), y: Math.cos(angleRad) };
 
-    const halfL = length / 2;
-    const halfW = width / 2;
+  // [KISZERVEZVE pehely-core.js-be] buildSingleTreeSegments
 
-    const cx = bx + d.x * halfL;
-    const cy = by + d.y * halfL;
 
-    const p1 = [ cx + n.x * halfW + d.x * halfL, cy + n.y * halfW + d.y * halfL ];
-    const p2 = [ cx - n.x * halfW + d.x * halfL, cy - n.y * halfW + d.y * halfL ];
-    const p3 = [ cx - n.x * halfW - d.x * halfL, cy - n.y * halfW - d.y * halfL ];
-    const p4 = [ cx + n.x * halfW - d.x * halfL, cy + n.y * halfW - d.y * halfL ];
+  // [KISZERVEZVE pehely-core.js-be] buildSnowflakeSegments
 
-    return [p1, p2, p3, p4, p1.slice()];
-  }
 
-  function scalePolygon(poly, scale) {
-    if (!poly || poly.length < 2 || scale === 1) return poly;
-    const unique = poly.slice(0, poly.length - 1);
-    if (!unique.length) return poly;
+  // [KISZERVEZVE pehely-core.js-be] buildTentHexFromEdge
 
-    let cx = 0, cy = 0;
-    for (const [x, y] of unique) { cx += x; cy += y; }
-    cx /= unique.length;
-    cy /= unique.length;
 
-    const scaled = unique.map(([x, y]) => [
-      cx + (x - cx) * scale,
-      cy + (y - cy) * scale
-    ]);
-    scaled.push(scaled[0].slice());
-    return scaled;
-  }
+  // [KISZERVEZVE pehely-core.js-be] buildRegularHexFromEdge
 
-  function buildSingleTreeSegments(params) {
-    const segments = [];
 
-    const trunkLength = 50;
-    const aspect = Math.max(0.02, params.rectAspectPercent / 100.0);
-    const trunkWidth = trunkLength * aspect;
+  // [KISZERVEZVE pehely-core.js-be] buildTrapHexFromEdge
 
-    const trunkAngle = Math.PI / 2;
-    const spacing = params.spacingPercent;
-    const angleOffset = params.branchAngleDeg * Math.PI / 180.0;
-    const reduction = Math.max(0, Math.min(0.95, params.reductionPercent / 100.0));
-    const tipMode = params.tipMode;
-    const tipScale = Number.isFinite(params.tipScale) ? params.tipScale : 1;
 
-    const runoffMode = params.runoff || 'Oo.';
-    const shrink = 1 - reduction;
+  // [KISZERVEZVE pehely-core.js-be] segmentToPolys
 
-    // Lefutás: ugyanazt a logikát alkalmazzuk a törzs menti ágakra és az ágon belüli ágacskákra is.
-    // idx: 1..count (belsőtől kifelé)
-    function applyRunoff(baseLen, idx, count) {
-      if (count <= 1) return baseLen; // oOo esetén is "ooo"
-      if (runoffMode === 'ooo') return baseLen;
-      if (runoffMode === '.oO') return baseLen * Math.pow(shrink, (count - idx));
-      if (runoffMode === 'oOo') {
-        const peak = Math.floor((count + 1) / 2); // párosnál az "belsőbb" középső
-        const d = Math.abs(idx - peak);
-        return baseLen * Math.pow(shrink, d);
-      }
-      // 'Oo.' (alapértelmezett)
-      return baseLen * Math.pow(shrink, (idx - 1));
-    }
 
-    segments.push({
-      bx: 0, by: 0,
-      length: trunkLength,
-      width: trunkWidth,
-      angle: trunkAngle,
-      tipMode,
-      tipScale,
-      isTrunk: true
-    });
+  // [KISZERVEZVE pehely-core.js-be] pointInPolygon
 
-    const count = Math.floor(100 / spacing);
-    const dTrunk = { x: Math.cos(trunkAngle), y: Math.sin(trunkAngle) };
-    const signs = [+1, -1];
 
-    for (let i = 1; i <= count; i++) {
-      const t = i * spacing / 100.0;
-      const posOnTrunk = trunkLength * t;
+  // [KISZERVEZVE pehely-core.js-be] buildLaserContoursExact
 
-      const baseX = dTrunk.x * posOnTrunk;
-      const baseY = dTrunk.y * posOnTrunk;
-
-      // Törzs -> ág lefutás: az i=1 pozíció legyen a "bázis" méret (a korábbi viselkedéssel kompatibilis).
-      const baseBranchLen = trunkLength * shrink; // korábbi i=1 méret
-      const branchLength = applyRunoff(baseBranchLen, i, count);
-      const branchWidth = branchLength * aspect;
-
-      for (const sign of signs) {
-        const branchAngle = trunkAngle + sign * angleOffset;
-        segments.push({
-          bx: baseX, by: baseY,
-          length: branchLength,
-          width: branchWidth,
-          angle: branchAngle,
-          tipMode,
-          tipScale,
-          isTrunk: false
-        });
-
-        const dBranch = { x: Math.cos(branchAngle), y: Math.sin(branchAngle) };
-
-        for (let j = 1; j <= count; j++) {
-          const t2 = j * spacing / 100.0;
-          const posOnBranch = branchLength * t2;
-
-          const twigBaseX = baseX + dBranch.x * posOnBranch;
-          const twigBaseY = baseY + dBranch.y * posOnBranch;
-
-          // Ág -> ágacska lefutás: bázis a j=1 méret.
-          const baseTwigLen = branchLength * shrink; // korábbi j=1 méret
-          const twigLength = applyRunoff(baseTwigLen, j, count);
-          const twigWidth = twigLength * aspect;
-
-          for (const sign2 of signs) {
-            const twigAngle = branchAngle + sign2 * angleOffset;
-            segments.push({
-              bx: twigBaseX, by: twigBaseY,
-              length: twigLength,
-              width: twigWidth,
-              angle: twigAngle,
-              tipMode,
-              tipScale,
-              isTrunk: false
-            });
-          }
-        }
-      }
-    }
-
-    return segments;
-  }
-
-  function buildSnowflakeSegments(params) {
-    const baseSegs = buildSingleTreeSegments(params);
-    const arms = Math.max(3, params.armCount);
-    const all = [];
-    const twoPi = 2 * Math.PI;
-
-    for (let k = 0; k < arms; k++) {
-      const phi = twoPi * k / arms;
-      const cosP = Math.cos(phi);
-      const sinP = Math.sin(phi);
-
-      for (const s of baseSegs) {
-        const x = s.bx;
-        const y = s.by;
-        const rx = x * cosP - y * sinP;
-        const ry = x * sinP + y * cosP;
-
-        all.push({
-          bx: rx,
-          by: ry,
-          length: s.length,
-          width: s.width,
-          angle: s.angle + phi,
-          tipMode: s.tipMode,
-          tipScale: s.tipScale,
-          isTrunk: s.isTrunk
-        });
-      }
-    }
-    return all;
-  }
-
-  function buildTentHexFromEdge(p1, p2, dir, tipScale) {
-    const dxB = p2[0] - p1[0];
-    const dyB = p2[1] - p1[1];
-    const b = Math.hypot(dxB, dyB);
-    if (b <= 1e-9) return null;
-
-    const baseDir = { x: dxB / b, y: dyB / b };
-    const sqrt3 = Math.sqrt(3);
-    const h = b / (2 * sqrt3);
-    const midX = (p1[0] + p2[0]) * 0.5;
-    const midY = (p1[1] + p2[1]) * 0.5;
-    const apexX = midX + dir.x * h;
-    const apexY = midY + dir.y * h;
-
-    const A = p1;
-    const B = p2;
-    const C = [apexX, apexY];
-
-    const v = { x: C[0] - A[0], y: C[1] - A[1] };
-    const dot = v.x * baseDir.x + v.y * baseDir.y;
-    const v_par = { x: baseDir.x * dot, y: baseDir.y * dot };
-    const v_perp = { x: v.x - v_par.x, y: v.y - v_par.y };
-    const C_ref = [ C[0] - 2 * v_perp.x, C[1] - 2 * v_perp.y ];
-
-    const sLen = Math.hypot(C[0] - A[0], C[1] - A[1]);
-    const t = { x: -dir.x * sLen, y: -dir.y * sLen };
-
-    const A2 = [ A[0] + t.x, A[1] + t.y ];
-    const B2 = [ B[0] + t.x, B[1] + t.y ];
-    const C2 = [ C_ref[0] + t.x, C_ref[1] + t.y ];
-
-    const pts = [A, B, C, A2, B2, C2].map(p => [p[0], p[1]]);
-
-    let cx = 0, cy = 0;
-    for (const [x, y] of pts) { cx += x; cy += y; }
-    cx /= pts.length;
-    cy /= pts.length;
-
-    pts.sort((p, q) => {
-      const angP = Math.atan2(p[1] - cy, p[0] - cx);
-      const angQ = Math.atan2(q[1] - cy, q[0] - cx);
-      return angP - angQ;
-    });
-
-    const hexPoly = pts.slice();
-    hexPoly.push(hexPoly[0].slice());
-    return scalePolygon(hexPoly, tipScale);
-  }
-
-  function buildRegularHexFromEdge(p1, p2, dir, tipScale) {
-    const dxB = p2[0] - p1[0];
-    const dyB = p2[1] - p1[1];
-    const b = Math.hypot(dxB, dyB);
-    if (b <= 1e-9) return null;
-
-    const wdir = { x: dxB / b, y: dyB / b };
-    const midX = (p1[0] + p2[0]) * 0.5;
-    const midY = (p1[1] + p2[1]) * 0.5;
-    const sqrt3 = Math.sqrt(3);
-
-    const local = [
-      [-b/2, 0],
-      [ b/2, 0],
-      [ b,   (sqrt3/2)*b ],
-      [ b/2,  sqrt3*b    ],
-      [-b/2,  sqrt3*b    ],
-      [-b,   (sqrt3/2)*b ]
-    ];
-
-    function toWorld(X, Y) {
-      return [
-        midX + X * wdir.x + Y * dir.x,
-        midY + X * wdir.y + Y * dir.y
-      ];
-    }
-
-    const hexPoly = local.map(([X,Y]) => toWorld(X,Y));
-    hexPoly.push(hexPoly[0].slice());
-    return scalePolygon(hexPoly, tipScale);
-  }
-
-  function buildTrapHexFromEdge(p1, p2, dir, tipScale) {
-    const dxB = p2[0] - p1[0];
-    const dyB = p2[1] - p1[1];
-    const b = Math.hypot(dxB, dyB);
-    if (b <= 1e-9) return null;
-
-    const wdir = { x: dxB / b, y: dyB / b };
-    const midX = (p1[0] + p2[0]) * 0.5;
-    const midY = (p1[1] + p2[1]) * 0.5;
-    const sqrt3 = Math.sqrt(3);
-
-    const h = (sqrt3 / 4) * b;
-    const halfTop = b / 4;
-
-    const local = [
-      [ b/2,     0   ],
-      [ halfTop, h   ],
-      [-halfTop, h   ],
-      [-b/2,     0   ],
-      [-halfTop,-h   ],
-      [ halfTop,-h   ]
-    ];
-
-    function toWorld(X, Y) {
-      return [
-        midX + X * wdir.x + Y * dir.x,
-        midY + X * wdir.y + Y * dir.y
-      ];
-    }
-
-    const hexTrapPoly = local.map(([X,Y]) => toWorld(X,Y));
-    hexTrapPoly.push(hexTrapPoly[0].slice());
-    return scalePolygon(hexTrapPoly, tipScale);
-  }
-
-  function segmentToPolys(seg, params) {
-    const polys = [];
-    const mainRect = makeRectFromBase(seg.bx, seg.by, seg.length, seg.width, seg.angle);
-
-    const tipMode     = seg.tipMode;
-    const tipScale    = (typeof seg.tipScale === 'number' && isFinite(seg.tipScale)) ? seg.tipScale : 1;
-    const onlyTips    = !!params.tipOnly;
-    const addBaseTips = !!params.tipAtCenter && !!seg.isTrunk;
-    const showTrunk   = !!params.showTrunk;
-
-    if (seg.isTrunk) {
-      if (showTrunk) polys.push(mainRect);
-    } else {
-      if (!onlyTips) polys.push(mainRect);
-    }
-
-    if (tipMode === 0) return polys;
-
-    const d = { x: Math.cos(seg.angle), y: Math.sin(seg.angle) };
-
-    if (tipMode === 2) {
-      function addYAt(baseX, baseY, mainAngle) {
-        const capLength = seg.length * 0.3 * tipScale;
-        const capWidth  = seg.width;
-        const deltas = [Math.PI / 3, -Math.PI / 3];
-        for (const delta of deltas) {
-          const tipAngle = mainAngle + delta;
-          polys.push(makeRectFromBase(baseX, baseY, capLength, capWidth, tipAngle));
-        }
-      }
-      const tipBaseX = seg.bx + d.x * seg.length;
-      const tipBaseY = seg.by + d.y * seg.length;
-      addYAt(tipBaseX, tipBaseY, seg.angle);
-      if (addBaseTips) addYAt(seg.bx, seg.by, seg.angle + Math.PI);
-      return polys;
-    }
-
-    const p1_far  = mainRect[0];
-    const p2_far  = mainRect[1];
-    const p1_near = mainRect[3];
-    const p2_near = mainRect[2];
-
-    const dTop  = d;
-    const dBase = { x: -d.x, y: -d.y };
-
-    if (tipMode === 1) {
-      const hexTop = buildTentHexFromEdge(p1_far,  p2_far,  dTop,  tipScale);
-      if (hexTop) polys.push(hexTop);
-      if (addBaseTips) {
-        const hexBase = buildTentHexFromEdge(p1_near, p2_near, dBase, tipScale);
-        if (hexBase) polys.push(hexBase);
-      }
-    } else if (tipMode === 3) {
-      const hexTop = buildRegularHexFromEdge(p1_far,  p2_far,  dTop,  tipScale);
-      if (hexTop) polys.push(hexTop);
-      if (addBaseTips) {
-        const hexBase = buildRegularHexFromEdge(p1_near, p2_near, dBase, tipScale);
-        if (hexBase) polys.push(hexBase);
-      }
-    } else if (tipMode === 4) {
-      const hexTop = buildTrapHexFromEdge(p1_far,  p2_far,  dTop,  tipScale);
-      if (hexTop) polys.push(hexTop);
-      if (addBaseTips) {
-        const hexBase = buildTrapHexFromEdge(p1_near, p2_near, dBase, tipScale);
-        if (hexBase) polys.push(hexBase);
-      }
-    }
-
-    return polys;
-  }
-
-  function pointInPolygon(x, y, poly) {
-    let inside = false;
-    const n = poly.length;
-    for (let i = 0, j = n - 1; i < n; j = i++) {
-      const xi = poly[i][0], yi = poly[i][1];
-      const xj = poly[j][0], yj = poly[j][1];
-      const intersect =
-        ((yi > y) !== (yj > y)) &&
-        (x < (xj - xi) * (y - yi) / (yj - yi + 1e-12) + xi);
-      if (intersect) inside = !inside;
-    }
-    return inside;
-  }
-
-  function buildLaserContoursExact(scaledPolys) {
-    if (!scaledPolys || !scaledPolys.length) return [];
-
-    const EPS = 1e-9;
-
-    const polyInfos = scaledPolys.map(poly => {
-      const unique = poly.slice(0, poly.length - 1);
-      let minX = Infinity, maxX = -Infinity;
-      let minY = Infinity, maxY = -Infinity;
-      for (const [x,y] of unique) {
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
-      }
-      return { poly, unique, minX, maxX, minY, maxY };
-    });
-
-    function pointInAnyPoly(x, y) {
-      for (const info of polyInfos) {
-        if (x < info.minX - 1e-6 || x > info.maxX + 1e-6 ||
-            y < info.minY - 1e-6 || y > info.maxY + 1e-6) continue;
-        if (pointInPolygon(x, y, info.poly)) return true;
-      }
-      return false;
-    }
-
-    const edges = [];
-    for (let pi = 0; pi < scaledPolys.length; pi++) {
-      const poly = scaledPolys[pi];
-      const unique = poly.slice(0, poly.length - 1);
-      const n = unique.length;
-      if (n < 2) continue;
-      for (let i = 0; i < n; i++) {
-        const a = unique[i];
-        const b = unique[(i + 1) % n];
-        edges.push({
-          ax: a[0], ay: a[1],
-          bx: b[0], by: b[1],
-          polyIndex: pi,
-          splitTs: [0, 1]
-        });
-      }
-    }
-
-    function addParam(arr, t) {
-      if (t < -EPS || t > 1 + EPS) return;
-      t = Math.max(0, Math.min(1, t));
-      for (let i = 0; i < arr.length; i++) {
-        if (Math.abs(arr[i] - t) < 1e-6) return;
-      }
-      arr.push(t);
-    }
-
-    function intersectEdges(e1, e2) {
-      const p = { x: e1.ax, y: e1.ay };
-      const r = { x: e1.bx - e1.ax, y: e1.by - e1.ay };
-      const q = { x: e2.ax, y: e2.ay };
-      const s = { x: e2.bx - e2.ax, y: e2.by - e2.ay };
-
-      const rxs = r.x * s.y - r.y * s.x;
-      const qmp = { x: q.x - p.x, y: q.y - p.y };
-      const qpxr = qmp.x * r.y - qmp.y * r.x;
-      const rr = r.x * r.x + r.y * r.y;
-      const ss = s.x * s.x + s.y * s.y;
-
-      if (Math.abs(rxs) < 1e-9) {
-        if (Math.abs(qpxr) > 1e-9) return;
-
-        // Collinear overlap: split both segments at overlap endpoints
-        if (rr < 1e-12 || ss < 1e-12) return;
-
-        const t0 = ( (q.x - p.x) * r.x + (q.y - p.y) * r.y ) / rr;
-        const t1 = ( (q.x + s.x - p.x) * r.x + (q.y + s.y - p.y) * r.y ) / rr;
-
-        const tmin = Math.max(0, Math.min(t0, t1));
-        const tmax = Math.min(1, Math.max(t0, t1));
-        if (tmax < -1e-9 || tmin > 1 + 1e-9 || tmax - tmin < 1e-9) return;
-
-        addParam(e1.splitTs, tmin);
-        addParam(e1.splitTs, tmax);
-
-        const u0 = ( (p.x - q.x) * s.x + (p.y - q.y) * s.y ) / ss;
-        const u1 = ( (p.x + r.x - q.x) * s.x + (p.y + r.y - q.y) * s.y ) / ss;
-
-        const umin = Math.max(0, Math.min(u0, u1));
-        const umax = Math.min(1, Math.max(u0, u1));
-        if (umax < -1e-9 || umin > 1 + 1e-9 || umax - umin < 1e-9) return;
-
-        addParam(e2.splitTs, umin);
-        addParam(e2.splitTs, umax);
-      } else {
-        const t = (qmp.x * s.y - qmp.y * s.x) / rxs;
-        const u = (qmp.x * r.y - qmp.y * r.x) / rxs;
-        if (t >= -1e-9 && t <= 1 + 1e-9 && u >= -1e-9 && u <= 1 + 1e-9) {
-          addParam(e1.splitTs, t);
-          addParam(e2.splitTs, u);
-        }
-      }
-    }
-
-    for (let i = 0; i < edges.length; i++) {
-      for (let j = i + 1; j < edges.length; j++) {
-        intersectEdges(edges[i], edges[j]);
-      }
-    }
-
-    const rawSegments = [];
-    for (const e of edges) {
-      const { ax, ay, bx, by, splitTs } = e;
-      splitTs.sort((a, b) => a - b);
-      for (let k = 0; k < splitTs.length - 1; k++) {
-        const t0 = splitTs[k];
-        const t1 = splitTs[k + 1];
-        if (t1 - t0 < 1e-5) continue;
-        const x0 = ax + (bx - ax) * t0;
-        const y0 = ay + (by - ay) * t0;
-        const x1 = ax + (bx - ax) * t1;
-        const y1 = ay + (by - ay) * t1;
-        rawSegments.push({ x0, y0, x1, y1 });
-      }
-    }
-
-    const boundarySegments = [];
-    for (const seg of rawSegments) {
-      const dx = seg.x1 - seg.x0;
-      const dy = seg.y1 - seg.y0;
-      const len = Math.hypot(dx, dy);
-      if (len < 1e-4) continue;
-      const mx = 0.5 * (seg.x0 + seg.x1);
-      const my = 0.5 * (seg.y0 + seg.y1);
-      const nx = -dy / len;
-      const ny =  dx / len;
-      const off = 1e-3;
-
-      const px1 = mx + nx * off;
-      const py1 = my + ny * off;
-      const px2 = mx - nx * off;
-      const py2 = my - ny * off;
-
-      const inside1 = pointInAnyPoly(px1, py1);
-      const inside2 = pointInAnyPoly(px2, py2);
-
-      if (inside1 !== inside2) boundarySegments.push(seg);
-    }
-
-    // --- Build closed contours from boundary segments (robust, edge-based traversal) ---
-    const KEY_SCALE = 1e4; // 0.0001 unit quantization for stable vertex matching
-    const vKey = (x, y) => Math.round(x * KEY_SCALE) + ',' + Math.round(y * KEY_SCALE);
-
-    // Deduplicate undirected boundary segments (can happen due to numeric noise)
-    const seenSeg = new Set();
-    const verts = new Map();      // key -> { x, y, outs: [] }
-    const allDirEdges = [];       // list of directed edges for traversal
-
-    function getVert(k, x, y) {
-      let v = verts.get(k);
-      if (!v) {
-        v = { x, y, outs: [] };
-        verts.set(k, v);
-      }
-      return v;
-    }
-
-    function addDirectedEdge(k0, x0, y0, k1, x1, y1) {
-      const from = getVert(k0, x0, y0);
-      const to   = getVert(k1, x1, y1);
-      const ang  = Math.atan2(to.y - from.y, to.x - from.x);
-      const e = {
-        fromK: k0, toK: k1,
-        fromPt: [from.x, from.y],
-        toPt: [to.x, to.y],
-        ang,
-        visited: false
-      };
-      from.outs.push(e);
-      allDirEdges.push(e);
-    }
-
-    for (const seg of boundarySegments) {
-      const k0 = vKey(seg.x0, seg.y0);
-      const k1 = vKey(seg.x1, seg.y1);
-      const und = (k0 < k1) ? (k0 + '|' + k1) : (k1 + '|' + k0);
-      if (seenSeg.has(und)) continue;
-      seenSeg.add(und);
-
-      addDirectedEdge(k0, seg.x0, seg.y0, k1, seg.x1, seg.y1);
-      addDirectedEdge(k1, seg.x1, seg.y1, k0, seg.x0, seg.y0);
-    }
-
-    // Sort outgoing edges around each vertex by angle
-    for (const v of verts.values()) {
-      v.outs.sort((a, b) => a.ang - b.ang);
-    }
-
-    function normAngle(a) {
-      while (a <= -Math.PI) a += 2 * Math.PI;
-      while (a >  Math.PI) a -= 2 * Math.PI;
-      return a;
-    }
-
-    function angleDiffCCW(fromAng, toAng) {
-      // minimal positive CCW turn from fromAng to toAng, in (0, 2π]
-      let d = normAngle(toAng - fromAng);
-      if (d <= 0) d += 2 * Math.PI;
-      return d;
-    }
-
-    function pickNextEdge(prevEdge) {
-      const v = verts.get(prevEdge.toK);
-      if (!v || !v.outs.length) return null;
-
-      // Incoming direction at the vertex is from current vertex back to previous vertex
-      const inAng = Math.atan2(prevEdge.fromPt[1] - prevEdge.toPt[1], prevEdge.fromPt[0] - prevEdge.toPt[0]);
-
-      let best = null;
-      let bestTurn = Infinity;
-
-      for (const e of v.outs) {
-        if (e.visited) continue;
-        const turn = angleDiffCCW(inAng, e.ang);
-        if (turn < bestTurn) {
-          bestTurn = turn;
-          best = e;
-        }
-      }
-      return best;
-    }
-
-    const contours = [];
-    const MAX_STEPS = allDirEdges.length + 10;
-
-    for (const startEdge of allDirEdges) {
-      if (startEdge.visited) continue;
-
-      const contour = [];
-      let e = startEdge;
-      let steps = 0;
-
-      // Start point
-      contour.push(e.fromPt.slice());
-
-      while (e && !e.visited && steps < MAX_STEPS) {
-        e.visited = true;
-        contour.push(e.toPt.slice());
-
-        const next = pickNextEdge(e);
-        e = next;
-        steps++;
-        if (e && e.fromK === startEdge.fromK && e.toK === startEdge.toK) break;
-      }
-
-      // Ensure closed loop
-      if (contour.length >= 4) {
-        const first = contour[0];
-        const last  = contour[contour.length - 1];
-        const d = Math.hypot(first[0] - last[0], first[1] - last[1]);
-        if (d > 1e-3) contour.push(first.slice());
-
-        // Remove tiny consecutive duplicates
-        const cleaned = [contour[0]];
-        for (let i = 1; i < contour.length; i++) {
-          const p = contour[i];
-          const q = cleaned[cleaned.length - 1];
-          if (Math.hypot(p[0] - q[0], p[1] - q[1]) > 1e-6) cleaned.push(p);
-        }
-
-        if (cleaned.length >= 4) contours.push(cleaned);
-      }
-    }
-
-    return contours;
-  }
 
   function computeContoursForCode(codeString, paramsOverride = null) {
     const params = paramsOverride || paramsFromCode(codeString);
@@ -1176,319 +526,27 @@ return {
     const cacheKey = `${codeString}|RUNOFF:${runoffKey}`;
     if (geometryCache.has(cacheKey)) return geometryCache.get(cacheKey);
 
-    const segments = buildSnowflakeSegments(params);
-    if (!segments.length) return null;
-
-    let minX0 = Infinity, maxX0 = -Infinity;
-    let minY0 = Infinity, maxY0 = -Infinity;
-
-    for (const seg of segments) {
-      const polys = segmentToPolys(seg, params);
-      for (const poly of polys) {
-        for (const [x,y] of poly) {
-          if (x < minX0) minX0 = x;
-          if (x > maxX0) maxX0 = x;
-          if (y < minY0) minY0 = y;
-          if (y > maxY0) maxY0 = y;
-        }
-      }
-    }
-
-    const width0  = maxX0 - minX0 || 1;
-    const height0 = maxY0 - minY0 || 1;
-    const size0   = Math.max(width0, height0) || 1;
-
-    const scaleModelToMm = DXF_TARGET_SIZE / size0;
-    const minRectMm  = Math.max(0, params.minRectMm || 0);
-    const growSmall  = params.growSmallRects;
-    const minWidthModel = minRectMm > 0 ? (minRectMm / scaleModelToMm) : 0;
-
-    const adjustedSegments = [];
-    for (const seg of segments) {
-      if (minWidthModel <= 0) {
-        adjustedSegments.push(seg);
-      } else if (seg.width >= minWidthModel) {
-        adjustedSegments.push(seg);
-      } else if (growSmall) {
-        adjustedSegments.push({ ...seg, width: minWidthModel });
-      }
-    }
-    if (!adjustedSegments.length) return null;
-
-    const rects = [];
-    let minX = Infinity, maxX = -Infinity;
-    let minY = Infinity, maxY = -Infinity;
-
-    for (const seg of adjustedSegments) {
-      const polys = segmentToPolys(seg, params);
-      for (const poly of polys) {
-        rects.push(poly);
-        for (const [x,y] of poly) {
-          if (x < minX) minX = x;
-          if (x > maxX) maxX = x;
-          if (y < minY) minY = y;
-          if (y > maxY) maxY = y;
-        }
-      }
-    }
-
-    const width  = maxX - minX || 1;
-    const height = maxY - minY || 1;
-    const size   = Math.max(width, height) || 1;
-    const scale  = DXF_TARGET_SIZE / size;
-
-    const scaledPolys = rects.map(poly =>
-      poly.map(([x,y]) => [ (x - minX) * scale, (y - minY) * scale ])
-    );
-
-    const contours = buildLaserContoursExact(scaledPolys);
-    if (!contours.length) return null;
-
-    let outerIndex = 0;
-    let maxAbsArea = -1;
-    for (let i = 0; i < contours.length; i++) {
-      const contour = contours[i];
-      const unique = contour.slice(0, contour.length - 1);
-      if (unique.length < 3) continue;
-      let area = 0;
-      for (let j = 0, k = unique.length - 1; j < unique.length; k = j++) {
-        const xi = unique[j][0], yi = unique[j][1];
-        const xj = unique[k][0], yj = unique[k][1];
-        area += (xj * yi - xi * yj);
-      }
-      area *= 0.5;
-      const absArea = Math.abs(area);
-      if (absArea > maxAbsArea) {
-        maxAbsArea = absArea;
-        outerIndex = i;
-      }
-    }
-
-    const contoursWithFlags = contours.map((c, idx) => ({
-      points: c,
-      isOuter: idx === outerIndex
-    }));
-
-    const result = { contoursWithFlags };
+    const result = computeContoursForParams(params);
     geometryCache.set(cacheKey, result);
     return result;
   }
 
-  function computePolysForParams(params) {
-    const segments = buildSnowflakeSegments(params);
-    if (!segments.length) return null;
+  // [KISZERVEZVE pehely-core.js-be] computePolysForParams
 
-    let minX0 = Infinity, maxX0 = -Infinity;
-    let minY0 = Infinity, maxY0 = -Infinity;
 
-    for (const seg of segments) {
-      const polys = segmentToPolys(seg, params);
-      for (const poly of polys) {
-        for (const [x,y] of poly) {
-          if (x < minX0) minX0 = x;
-          if (x > maxX0) maxX0 = x;
-          if (y < minY0) minY0 = y;
-          if (y > maxY0) maxY0 = y;
-        }
-      }
-    }
+  // [KISZERVEZVE pehely-core.js-be] computePolysForCode
 
-    const width0  = maxX0 - minX0 || 1;
-    const height0 = maxY0 - minY0 || 1;
-    const size0   = Math.max(width0, height0) || 1;
-
-    const scaleModelToMm = DXF_TARGET_SIZE / size0;
-    const minRectMm  = Math.max(0, params.minRectMm || 0);
-    const growSmall  = params.growSmallRects;
-    const minWidthModel = minRectMm > 0 ? (minRectMm / scaleModelToMm) : 0;
-
-    const adjustedSegments = [];
-    for (const seg of segments) {
-      if (minWidthModel <= 0) {
-        adjustedSegments.push(seg);
-      } else if (seg.width >= minWidthModel) {
-        adjustedSegments.push(seg);
-      } else if (growSmall) {
-        adjustedSegments.push({ ...seg, width: minWidthModel });
-      }
-    }
-    if (!adjustedSegments.length) return null;
-
-    const rects = [];
-    let minX = Infinity, maxX = -Infinity;
-    let minY = Infinity, maxY = -Infinity;
-
-    for (const seg of adjustedSegments) {
-      const polys = segmentToPolys(seg, params);
-      for (const poly of polys) {
-        rects.push(poly);
-        for (const [x,y] of poly) {
-          if (x < minX) minX = x;
-          if (x > maxX) maxX = x;
-          if (y < minY) minY = y;
-          if (y > maxY) maxY = y;
-        }
-      }
-    }
-
-    const width  = maxX - minX || 1;
-    const height = maxY - minY || 1;
-    const size   = Math.max(width, height) || 1;
-    const scale  = DXF_TARGET_SIZE / size;
-
-    const scaledPolys = rects.map(poly =>
-      poly.map(([x,y]) => [ (x - minX) * scale, (y - minY) * scale ])
-    );
-
-    return {
-      polys: scaledPolys,
-      minX: 0,
-      maxX: width * scale,
-      minY: 0,
-      maxY: height * scale
-    };
-  }
-
-  function computePolysForCode(codeString) {
-    const params = paramsFromCode(codeString);
-    return computePolysForParams(params);
-  }
 
 
   // ====== JPG komment (PEHELY-kód) ======
-  function addJpegCommentToArrayBuffer(arrayBuffer, comment) {
-    const bytes = new Uint8Array(arrayBuffer);
-    if (bytes.length < 4 || bytes[0] !== 0xFF || bytes[1] !== 0xD8) {
-      return new Blob([bytes], { type: 'image/jpeg' });
-    }
-    const encoder = new TextEncoder();
-    const commentBytes = encoder.encode(comment);
-    const len = commentBytes.length + 2;
+  // [KISZERVEZVE pehely-core.js-be] addJpegCommentToArrayBuffer
 
-    const newBytes = new Uint8Array(bytes.length + commentBytes.length + 4);
-    let offset = 0;
 
-    newBytes[offset++] = 0xFF;
-    newBytes[offset++] = 0xD8;
+  // [KISZERVEZVE pehely-core.js-be] parseCodeFromJpegArrayBuffer
 
-    newBytes[offset++] = 0xFF;
-    newBytes[offset++] = 0xFE;
-    newBytes[offset++] = (len >> 8) & 0xFF;
-    newBytes[offset++] = len & 0xFF;
 
-    newBytes.set(commentBytes, offset);
-    offset += commentBytes.length;
+  // [KISZERVEZVE pehely-core.js-be] createJpegBlobForCode
 
-    newBytes.set(bytes.subarray(2), offset);
-
-    return new Blob([newBytes], { type: 'image/jpeg' });
-  }
-
-  function parseCodeFromJpegArrayBuffer(arrayBuffer) {
-    const bytes = new Uint8Array(arrayBuffer);
-    if (bytes.length < 4 || bytes[0] !== 0xFF || bytes[1] !== 0xD8) return null;
-
-    let i = 2;
-    while (i + 4 <= bytes.length) {
-      if (bytes[i] !== 0xFF) { i++; continue; }
-      const marker = bytes[i + 1];
-      if (marker === 0xD9 || marker === 0xDA) break;
-      const len = (bytes[i + 2] << 8) | bytes[i + 3];
-      if (len < 2 || i + 2 + len > bytes.length) break;
-
-      if (marker === 0xFE) {
-        const start = i + 4;
-        const end   = i + 2 + len;
-        const comBytes = bytes.subarray(start, end);
-        const decoder  = new TextDecoder('utf-8');
-        const text     = decoder.decode(comBytes);
-        const idx      = text.indexOf('PEHELY-');
-        if (idx !== -1) {
-          const code = text.substring(idx + 7).trim();
-          if (code) return code;
-        }
-      }
-      i += 2 + len;
-    }
-    return null;
-  }
-
-  function createJpegBlobForCode(code, paramsOverride = null) {
-    const params = paramsOverride || paramsFromCode(code);
-    const polyData = computePolysForParams(params);
-    if (!polyData) return Promise.resolve(null);
-    const { polys, minX, maxX, minY, maxY } = polyData;
-
-    const canvas = document.createElement('canvas');
-    canvas.width  = 600;
-    canvas.height = 640;
-    const ctx = canvas.getContext('2d');
-
-    ctx.fillStyle = '#001633';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    const width  = maxX - minX || 1;
-    const height = maxY - minY || 1;
-
-    const marginX   = 40;
-    const topMargin = 40;
-    const textSpace = 70;
-    const drawWidth  = canvas.width - 2 * marginX;
-    const drawHeight = canvas.height - topMargin - textSpace;
-
-    const scale  = 0.95 * Math.min(drawWidth / width, drawHeight / height);
-    const cx     = (minX + maxX) / 2;
-    const cy     = (minY + maxY) / 2;
-    const originX = canvas.width / 2;
-    const originY = topMargin + drawHeight / 2;
-
-    const fillColor   = '#bfe9ff';
-    const strokeColor = fillColor;
-
-    ctx.lineJoin    = 'round';
-    ctx.lineCap     = 'round';
-    ctx.lineWidth   = 1.2;
-    ctx.fillStyle   = fillColor;
-    ctx.strokeStyle = strokeColor;
-
-    for (const poly of polys) {
-      if (!poly || poly.length < 2) continue;
-      ctx.beginPath();
-      for (let i = 0; i < poly.length; i++) {
-        const x = poly[i][0];
-        const y = poly[i][1];
-        const sx = originX + (x - cx) * scale;
-        const sy = originY - (y - cy) * scale;
-        if (i === 0) ctx.moveTo(sx, sy);
-        else ctx.lineTo(sx, sy);
-      }
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-    }
-
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '16px system-ui, -apple-system, BlinkMacSystemFont,"Segoe UI",sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(code, canvas.width / 2, canvas.height - textSpace / 2);
-
-    return new Promise((resolve) => {
-      canvas.toBlob((blob) => {
-        if (!blob) {
-          resolve(null);
-          return;
-        }
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          const arr = e.target.result;
-          const commentedBlob = addJpegCommentToArrayBuffer(arr, 'PEHELY-' + code);
-          resolve(commentedBlob);
-        };
-        reader.readAsArrayBuffer(blob);
-      }, 'image/jpeg', 0.92);
-    });
-  }
 
   // ====== UI-hez tartozó logika ======
   let currentCode = null;
@@ -1590,40 +648,8 @@ return {
     document.getElementById('growSmallCheckbox').checked = !!p.growSmallRects;
   }
 
-  function buildCodeFromParams(p) {
-    const angleStr   = Math.round(p.branchAngleDeg).toString();
-    const ratioStr   = Math.round(p.rectAspectPercent).toString();
-    const spacingStr = Math.round(p.spacingPercent).toString();
-    const redStr     = Math.round(p.reductionPercent).toString();
+  // [KISZERVEZVE pehely-core.js-be] buildCodeFromParams
 
-    let tipCode = '0S';
-    if      (p.tipMode === 1) tipCode = '3S';
-    else if (p.tipMode === 2) tipCode = 'YY';
-    else if (p.tipMode === 3) tipCode = '6S';
-    else if (p.tipMode === 4) tipCode = '4S';
-
-    // Lefutás kód (v48): a Végforma után
-    const runoffCode = (function(mode){
-      switch (mode) {
-        case '.oO': return 'PO';
-        case 'ooo': return 'NU';
-        case 'oOo': return 'VA';
-        case 'Oo.':
-        default:    return 'NE';
-      }
-    })(p.runoff || 'Oo.');
-
-    const tipScaleStr   = (Number.isFinite(p.tipScale) ? p.tipScale : 1.0).toFixed(2);
-    const tipOnlyFlag   = p.tipOnly     ? 'Y' : 'N';
-    const tipCenterFlag = p.tipAtCenter ? 'Y' : 'N';
-    const trunkFlag     = p.showTrunk   ? 'Y' : 'N';
-
-    const armsStr     = Math.round(p.armCount).toString();
-    const minRectStr  = (Number.isFinite(p.minRectMm) ? p.minRectMm : 0).toFixed(1);
-    const growFlag    = p.growSmallRects ? 'Y' : 'N';
-
-    return `${angleStr}-${ratioStr}-${spacingStr}-${redStr}-${tipCode}-${runoffCode}-${tipScaleStr}-${tipOnlyFlag}-${tipCenterFlag}-${trunkFlag}-${armsStr}-${minRectStr}-${growFlag}`;
-  }
 
   function recomputeFromUI() {
     const p = getParamsFromUI();
@@ -1763,7 +789,7 @@ return {
     const cx = (minX + maxX) / 2;
     const cy = (minY + maxY) / 2;
 
-    const blockName = 'PEHELY';
+    const blockName = PehelyCore.blockNameFromCode(currentCode);
 
     add(0, 'SECTION');
     add(2, 'HEADER');
