@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Rodé Lajos - HAVAZO v43</title>
+  <title>Rodé Lajos - HAVAZO v48</title>
   <style>
     * {
       box-sizing: border-box;
@@ -110,7 +110,8 @@
 
     .thumb-wrapper {
       width: 100%;
-      background: #ffffff;
+      background: #f2f2f2;
+      border: 1px solid #ddd;
       border-radius: 10px;
       padding: 4px;
       display: flex;
@@ -122,7 +123,7 @@
       max-width: 100%;
       max-height: 100%;
       border-radius: 8px;
-      background: #001633;
+      background: transparent;
       aspect-ratio: 15 / 16;  /* a 600x640-hez közeli arány */
       object-fit: cover;
     }
@@ -238,11 +239,12 @@
         justify-content: flex-start;
       }
     }
-  </style>
+    /* Kártya státusz: a JPG megléte a bélyegképen látszik (kék vs bordó), a keret semleges. */
+</style>
 </head>
 <body>
 <div class="page">
-  <h1>Rodé Lajos - HAVAZO <span class="version">v43</span></h1>
+  <h1>Rodé Lajos - HAVAZO <span class="version">v48</span></h1>
 
   <div class="top-bar">
     <div class="folder-info">
@@ -316,23 +318,91 @@
     URL.revokeObjectURL(url);
   }
 
-  async function saveWithPickerOrDownload(suggestedName, mimeType, content) {
-    const blob = new Blob([content], { type: mimeType });
-    if (window.showSaveFilePicker) {
+  // ====== Save manager: mappa ha lehet, különben Letöltések ======
+  const saveManager = (() => {
+    // mode: 'unknown' | 'dir' | 'download'
+    let mode = 'unknown';
+    let outDirHandle = null;
+
+    function canUseDir() {
+      return !!window.showDirectoryPicker && !!window.isSecureContext;
+    }
+
+    async function ensureOutDir() {
+      if (mode === 'download') return null;
+      if (outDirHandle) return outDirHandle;
+
+      if (!canUseDir()) {
+        mode = 'download';
+        return null;
+      }
+
       try {
-        const handle = await window.showSaveFilePicker({
-          suggestedName,
-          types: [{ description: mimeType, accept: { [mimeType]: [ '.' + suggestedName.split('.').pop() ] } }]
-        });
-        const writable = await handle.createWritable();
-        await writable.write(blob);
-        await writable.close();
-        return;
+        outDirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+        if (outDirHandle && outDirHandle.queryPermission) {
+          let p = await outDirHandle.queryPermission({ mode: 'readwrite' });
+          if (p !== 'granted' && outDirHandle.requestPermission) {
+            p = await outDirHandle.requestPermission({ mode: 'readwrite' });
+          }
+          if (p !== 'granted') {
+            outDirHandle = null;
+            mode = 'download';
+            return null;
+          }
+        }
+        mode = outDirHandle ? 'dir' : 'download';
+        return outDirHandle;
       } catch (e) {
-        console.warn('Mentés megszakítva vagy hiba:', e);
+        console.warn('Kimeneti mappa kiválasztása megszakítva vagy hiba:', e);
+        mode = 'download';
+        outDirHandle = null;
+        return null;
       }
     }
-    downloadBlob(blob, suggestedName);
+
+    async function writeToDir(dirHandle, filename, blob) {
+      const fileHandle = await dirHandle.getFileHandle(filename, { create: true });
+      const writable = await fileHandle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+    }
+
+    async function saveMany(files) {
+      const dir = await ensureOutDir();
+      if (dir) {
+        for (const f of files) {
+          try {
+            await writeToDir(dir, f.name, f.blob);
+          } catch (e) {
+            console.warn('Nem sikerült mappába menteni, letöltés lesz:', e);
+            downloadBlob(f.blob, f.name);
+          }
+        }
+        return { mode: 'dir' };
+      } else {
+        for (const f of files) downloadBlob(f.blob, f.name);
+        return { mode: 'download' };
+      }
+    }
+
+    function setOutDirHandle(dirHandleOrNull) {
+      outDirHandle = dirHandleOrNull || null;
+      mode = outDirHandle ? 'dir' : 'unknown';
+    }
+
+    function reset() {
+      outDirHandle = null;
+      mode = 'unknown';
+    }
+
+    return { saveMany, ensureOutDir, setOutDirHandle, reset };
+  })();
+
+
+
+  async function saveWithPickerOrDownload(suggestedName, mimeType, content) {
+    const blob = (content instanceof Blob) ? content : new Blob([content], { type: mimeType });
+    await saveManager.saveMany([{ name: suggestedName, blob }]);
   }
 
   function formatTimestampForName(date) {
@@ -356,7 +426,7 @@
     if (parts.length < 12) {
       throw new Error('Érvénytelen PEHELY kód: ' + codeString);
     }
-    // ÚJ (v43): Lefutás kód (a Végforma után) – visszafelé kompatibilis.
+    // ÚJ (v48): Lefutás kód (a Végforma után) – visszafelé kompatibilis.
     let angleStr, ratioStr, spaceStr, redStr;
     let tipCode, runoffCode, tipScaleStr, tipOnlyFlag, tipCenterFlag, trunkFlag, armsStr, minRectStr, growFlag;
     if (parts.length === 12) {
@@ -1267,7 +1337,7 @@ const tipMode = params.tipMode;
     return new Blob([newBytes], { type: 'image/jpeg' });
   }
 
-  function createJpegBlobForCode(code) {
+  function createJpegBlobForCode(code, themeKey = 'blue') {
     const polyData = computePolysForCode(code);
     if (!polyData) return Promise.resolve(null);
     const { polys, minX, maxX, minY, maxY } = polyData;
@@ -1277,7 +1347,14 @@ const tipMode = params.tipMode;
     canvas.height = 640;
     const ctx = canvas.getContext('2d');
 
-    ctx.fillStyle = '#001633';
+    const THEMES = {
+      blue:   { bg: '#001633', fill: '#bfe9ff', stroke: '#bfe9ff', text: '#ffffff' },
+      bordo:  { bg: '#5e0700', fill: '#fbeed2', stroke: '#fbeed2', text: '#d1b6a1' }
+    };
+    const theme = THEMES[themeKey] || THEMES.blue;
+
+
+    ctx.fillStyle = theme.bg;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     const width  = maxX - minX || 1;
@@ -1295,8 +1372,8 @@ const tipMode = params.tipMode;
     const originX = canvas.width / 2;
     const originY = topMargin + drawHeight / 2;
 
-    const fillColor   = '#bfe9ff';
-    const strokeColor = fillColor;
+    const fillColor   = theme.fill;
+    const strokeColor = theme.stroke;
 
     ctx.lineJoin    = 'round';
     ctx.lineCap     = 'round';
@@ -1320,7 +1397,7 @@ const tipMode = params.tipMode;
       ctx.stroke();
     }
 
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = theme.text;
     ctx.font = '16px system-ui, -apple-system, BlinkMacSystemFont,"Segoe UI",sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -1459,7 +1536,7 @@ const tipMode = params.tipMode;
 
   function createCardForItem(item) {
     const card = document.createElement('div');
-    card.className = 'snowflake-card';
+    card.className = 'snowflake-card ' + (item.isVirtual ? 'virtual' : 'has-jpg');
 
     const thumbWrap = document.createElement('div');
     thumbWrap.className = 'thumb-wrapper';
@@ -1505,10 +1582,18 @@ const tipMode = params.tipMode;
 
     item.cardElem = card;
     item.qtyInput = qtyInput;
+    updateCardClasses(item);
     return card;
   }
 
-  function refreshCardsGrid() {
+  
+  function updateCardClasses(item) {
+    if (!item || !item.cardElem) return;
+    item.cardElem.classList.toggle('virtual', !!item.isVirtual);
+    item.cardElem.classList.toggle('has-jpg', !item.isVirtual);
+  }
+
+function refreshCardsGrid() {
     cardsGrid.innerHTML = '';
     if (!items.length) {
       emptyMessage.style.display = 'block';
@@ -1532,6 +1617,7 @@ const tipMode = params.tipMode;
       try {
         const handle = await window.showDirectoryPicker();
         currentDirectoryHandle = handle;
+        saveManager.setOutDirHandle(handle);
         currentSelectedFiles = null;
         currentFolderNameEl.textContent = handle.name;
         await scanSources();
@@ -1570,12 +1656,11 @@ const tipMode = params.tipMode;
     emptyMessage.style.display = 'block';
 
     if (!currentSelectedFiles || !currentSelectedFiles.length) {
-      updateSummaryCounts();
-      return;
+      // Nincs kijelölt JPG; ha van JSON-lista, attól még készítünk virtuális kártyákat.
     }
 
     try {
-      for (const file of currentSelectedFiles) {
+      for (const file of (currentSelectedFiles || [])) {
         if (!file || !(file.name || '').toLowerCase().endsWith('.jpg')) continue;
 
         const code = await readCodeFromJpegFile(file);
@@ -1608,7 +1693,7 @@ const tipMode = params.tipMode;
     for (const code of codesInJson) {
       if (!itemsByCode.has(code)) {
         try {
-          const blob = await createJpegBlobForCode(code);
+          const blob = await createJpegBlobForCode(code, 'bordo');
           if (!blob) continue;
           const url = URL.createObjectURL(blob);
           const qty = quantitiesFromJson.get(code) || 0;
@@ -1633,7 +1718,29 @@ const tipMode = params.tipMode;
     refreshCardsGrid();
   }
 
-  async function scanSources() {
+  
+  async function suggestWorkFolderIfMissing() {
+    // Weben nem tudjuk automatikusan kinyerni a JSON szülőmappáját.
+    // Ha nincs munkamappa, felajánljuk, hogy a felhasználó válassza ki (célszerűen ugyanazt a mappát, ahol a JSON van).
+    if (currentDirectoryHandle) return;
+    if (!window.showDirectoryPicker || !window.isSecureContext) return;
+
+    const ok = confirm('Nincs munkamappa kijelölve. Szeretnéd most kiválasztani a mappát (célszerűen azt, ahol a JSON is van), hogy a JPG-ket oda tudjuk menteni?');
+    if (!ok) return;
+
+    try {
+      const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+      currentDirectoryHandle = handle;
+      currentSelectedFiles = null;
+      currentFolderNameEl.textContent = handle.name;
+      saveManager.setOutDirHandle(handle);
+      await scanSources();
+    } catch (e) {
+      console.warn('Mappa kijelölése megszakítva vagy hiba:', e);
+    }
+  }
+
+async function scanSources() {
     cleanupObjectUrls();
     if (currentDirectoryHandle) return scanCurrentFolder();
     return scanSelectedFiles();
@@ -1654,6 +1761,7 @@ const tipMode = params.tipMode;
     const files = Array.from(evt.target.files || []).filter(f => (f.name || '').toLowerCase().endsWith('.jpg'));
     currentSelectedFiles = files;
     currentDirectoryHandle = null;
+    saveManager.setOutDirHandle(null);
     currentFolderNameEl.textContent = files.length ? `Kijelölt fájlok (${files.length})` : '—';
     scanSources();
   }
@@ -1664,7 +1772,7 @@ const tipMode = params.tipMode;
     file.text().then(text => {
       const data = JSON.parse(text);
       applyQuantitiesFromJsonData(data);
-      scanSources();
+      scanSources().then(() => suggestWorkFolderIfMissing());
     }).catch(e => {
       console.error('JSON beolvasási hiba:', e);
       alert('Nem sikerült beolvasni a JSON-t.');
@@ -1716,7 +1824,7 @@ async function scanCurrentFolder() {
     for (const [code, qty] of quantitiesFromJson.entries()) {
       if (!itemsByCode.has(code)) {
         try {
-          const blob = await createJpegBlobForCode(code);
+          const blob = await createJpegBlobForCode(code, 'bordo');
           if (!blob) continue;
           const url = URL.createObjectURL(blob);
           const item = {
@@ -1777,42 +1885,63 @@ async function scanCurrentFolder() {
   // ====== Hiányzó képek generálása ======
 
   async function generateMissingImages() {
-    if (!quantitiesFromJson.size && !items.length) {
+    const codesSet = new Set();
+    for (const [code] of quantitiesFromJson.entries()) codesSet.add(code);
+    for (const item of items) codesSet.add(item.code);
+
+    if (!codesSet.size) {
       alert('Nincs ismert hópehely-kód, amit generálni lehetne.');
       return;
     }
 
     const missingCodes = [];
-    for (const [code] of quantitiesFromJson.entries()) {
+    for (const code of codesSet) {
       const item = itemsByCode.get(code);
-      if (!item || !item.fileHandle) {
-        missingCodes.push(code);
-      }
-    }
-
-    for (const item of items) {
-      if (item.isVirtual && !quantitiesFromJson.has(item.code)) {
-        missingCodes.push(item.code);
-      }
+      if (!item || item.isVirtual) missingCodes.push(code);
     }
 
     if (!missingCodes.length) {
-      alert('Nincs hiányzó kép, minden hópehelyhez tartozik már JPG.');
+      alert('Nincs hiányzó kép: minden kódhoz van már betöltött kép.');
       return;
     }
+
+    const files = [];
+    const blobsByCode = new Map();
 
     for (const code of missingCodes) {
       try {
         const blob = await createJpegBlobForCode(code);
         if (!blob) continue;
-        const filename = `PEHELY-${code}.jpg`;
-        downloadBlob(blob, filename);
+        blobsByCode.set(code, blob);
+        files.push({ name: `PEHELY-${code}.jpg`, blob });
       } catch (e) {
         console.error('Hiba a kép generálásakor:', e);
       }
     }
 
-    alert('A hiányzó képek JPG formátumban letöltésre kerültek. Helyezd őket a munkamappába, majd olvasd be újra a mappát, ha szükséges.');
+    if (!files.length) {
+      alert('Nem sikerült képet generálni a hiányzókhoz.');
+      return;
+    }
+
+    await saveManager.saveMany(files);
+
+    for (const [code, blob] of blobsByCode.entries()) {
+      const item = itemsByCode.get(code);
+      if (!item) continue;
+
+      try { if (item.imgURL) URL.revokeObjectURL(item.imgURL); } catch (_) {}
+      item.imgURL = URL.createObjectURL(blob);
+      item.isVirtual = false;
+
+      if (item.cardElem) {
+        const img = item.cardElem.querySelector('img');
+        if (img) img.src = item.imgURL;
+        updateCardClasses(item);
+      }
+    }
+
+    alert('A hiányzó képek elkészültek. (Ha Letöltésekbe mentődtek, másold át őket a munkamappába, majd olvasd be újra a mappát.)');
   }
 
   // ====== Minden mennyiséget azonosra állító gomb ======
@@ -2010,7 +2139,7 @@ const now = new Date();
     }
 
     const jsonData = {
-      version: 'HAVAZO_V43',
+      version: 'HAVAZO_V48',
       generatedAt: now.toISOString(),
       items: codesWithCounts
     };

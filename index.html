@@ -2,7 +2,7 @@
 <html lang="hu">
 <head>
   <meta charset="UTF-8">
-  <title>Rodé Lajos - Hópehely generátor v43</title>
+  <title>Rodé Lajos - Hópehely generátor v48</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     * {
@@ -212,7 +212,7 @@
 <div class="page">
   <h1>
     Rodé Lajos - Hópehely generátor
-    <span class="version">v43</span>
+    <span class="version">v48</span>
   </h1>
 
   <div class="container">
@@ -370,33 +370,91 @@
     URL.revokeObjectURL(url);
   }
 
-  async function saveFileWithPickerOrDownload(suggestedName, mimeType, data) {
-    let blob;
-    if (data instanceof Blob) {
-      blob = data;
-    } else {
-      blob = new Blob([data], { type: mimeType });
+  // ====== Save manager: mappa ha lehet, különben Letöltések ======
+  const saveManager = (() => {
+    // mode: 'unknown' | 'dir' | 'download'
+    let mode = 'unknown';
+    let outDirHandle = null;
+
+    function canUseDir() {
+      return !!window.showDirectoryPicker && !!window.isSecureContext;
     }
 
-    if (window.showSaveFilePicker) {
+    async function ensureOutDir() {
+      if (mode === 'download') return null;
+      if (outDirHandle) return outDirHandle;
+
+      if (!canUseDir()) {
+        mode = 'download';
+        return null;
+      }
+
       try {
-        const ext = suggestedName.split('.').pop() || '';
-        const handle = await window.showSaveFilePicker({
-          suggestedName,
-          types: [{
-            description: mimeType,
-            accept: { [mimeType]: ['.' + ext] }
-          }]
-        });
-        const writable = await handle.createWritable();
-        await writable.write(blob);
-        await writable.close();
-        return;
+        outDirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+        if (outDirHandle && outDirHandle.queryPermission) {
+          let p = await outDirHandle.queryPermission({ mode: 'readwrite' });
+          if (p !== 'granted' && outDirHandle.requestPermission) {
+            p = await outDirHandle.requestPermission({ mode: 'readwrite' });
+          }
+          if (p !== 'granted') {
+            outDirHandle = null;
+            mode = 'download';
+            return null;
+          }
+        }
+        mode = outDirHandle ? 'dir' : 'download';
+        return outDirHandle;
       } catch (e) {
-        console.warn('Mentés megszakítva vagy hiba:', e);
+        console.warn('Kimeneti mappa kiválasztása megszakítva vagy hiba:', e);
+        mode = 'download';
+        outDirHandle = null;
+        return null;
       }
     }
-    downloadBlob(blob, suggestedName);
+
+    async function writeToDir(dirHandle, filename, blob) {
+      const fileHandle = await dirHandle.getFileHandle(filename, { create: true });
+      const writable = await fileHandle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+    }
+
+    async function saveMany(files) {
+      const dir = await ensureOutDir();
+      if (dir) {
+        for (const f of files) {
+          try {
+            await writeToDir(dir, f.name, f.blob);
+          } catch (e) {
+            console.warn('Nem sikerült mappába menteni, letöltés lesz:', e);
+            downloadBlob(f.blob, f.name);
+          }
+        }
+        return { mode: 'dir' };
+      } else {
+        for (const f of files) downloadBlob(f.blob, f.name);
+        return { mode: 'download' };
+      }
+    }
+
+    function setOutDirHandle(dirHandleOrNull) {
+      outDirHandle = dirHandleOrNull || null;
+      mode = outDirHandle ? 'dir' : 'unknown';
+    }
+
+    function reset() {
+      outDirHandle = null;
+      mode = 'unknown';
+    }
+
+    return { saveMany, ensureOutDir, setOutDirHandle, reset };
+  })();
+
+
+
+  async function saveFileWithPickerOrDownload(suggestedName, mimeType, data) {
+    const blob = (data instanceof Blob) ? data : new Blob([data], { type: mimeType });
+    await saveManager.saveMany([{ name: suggestedName, blob }]);
   }
 
   // ====== PEHELY geometria (ugyanaz a logika, mint a HAVAZO-ban) ======
@@ -408,7 +466,7 @@
     if (parts.length < 12) {
       throw new Error('Érvénytelen PEHELY kód: ' + codeString);
     }
-    // ÚJ (v43): Lefutás kód (a Végforma után) – visszafelé kompatibilis.
+    // ÚJ (v48): Lefutás kód (a Végforma után) – visszafelé kompatibilis.
     // Régi: angle-ratio-space-red-tip-tipScale-tipOnly-tipCenter-trunk-arms-minRect-grow
     // Új:   angle-ratio-space-red-tip-runoff-tipScale-tipOnly-tipCenter-trunk-arms-minRect-grow
     let angleStr, ratioStr, spaceStr, redStr;
@@ -1544,7 +1602,7 @@ return {
     else if (p.tipMode === 3) tipCode = '6S';
     else if (p.tipMode === 4) tipCode = '4S';
 
-    // Lefutás kód (v43): a Végforma után
+    // Lefutás kód (v48): a Végforma után
     const runoffCode = (function(mode){
       switch (mode) {
         case '.oO': return 'PO';
