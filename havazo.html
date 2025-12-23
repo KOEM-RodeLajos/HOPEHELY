@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Rodé Lajos - HAVAZO v53</title>
+  <title>Rodé Lajos - HAVAZO v63</title>
   <style>
     * {
       box-sizing: border-box;
@@ -157,12 +157,50 @@
     }
     .bottom-right {
       display: flex;
+      flex-direction: column;
+      flex-wrap: nowrap;
+      align-items: flex-end;
+      justify-content: flex-end;
+      gap: 0.35rem;
+    }
+    .layout-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 0.5rem;
+      width: 100%;
+    }
+    .layout-row label {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      font-size: 0.82rem;
+      color: #222;
+    }
+    .layout-row select {
+      padding: 0.15rem 0.25rem;
+      border-radius: 6px;
+      border: 1px solid #cfd4da;
+      background: #fff;
+    }
+    .layout-row input[type="number"] {
+      width: 5.2rem;
+      padding: 0.15rem 0.25rem;
+      text-align: right;
+      border-radius: 6px;
+      border: 1px solid #cfd4da;
+      background: #fff;
+    }
+    .action-row {
+      display: flex;
       flex-wrap: wrap;
       align-items: center;
       justify-content: flex-end;
       gap: 0.4rem;
+      width: 100%;
     }
-    .bottom-right input[type="number"] {
+    .action-row input[type="number"] {
       width: 4rem;
       padding: 0.15rem 0.2rem;
       text-align: center;
@@ -236,6 +274,9 @@
         align-items: stretch;
       }
       .bottom-right {
+        align-items: stretch;
+      }
+      .layout-row, .action-row {
         justify-content: flex-start;
       }
     }
@@ -244,7 +285,7 @@
 </head>
 <body>
 <div class="page">
-  <h1>Rodé Lajos - HAVAZO <span class="version">v53</span></h1>
+  <h1>Rodé Lajos - HAVAZO <span id="appVersion" class="version">v63</span></h1>
 
   <div class="top-bar">
     <div class="folder-info">
@@ -253,7 +294,7 @@
     </div>
     <button id="chooseFolderBtn" class="secondary">Mappa kijelölése</button>
       <input id="folderFileInput" type="file" accept="image/jpeg" multiple webkitdirectory directory style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0">
-      <input id="jsonFileInput" type="file" accept="application/json,.json" style="display:none">
+      <input id="jsonFileInput" type="file" accept="application/json,.json" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0">
 
   </div>
 
@@ -278,18 +319,46 @@
 
   <div class="bottom-bar">
     <div class="bottom-left">
-      <a href="index.html" class="btn-link btn-secondary">GENERÁTOR</a>
+      <a href="pehely.html" id="gotoPehelyLink" class="btn-link btn-secondary">GENERÁTOR</a>
     </div>
     <div class="bottom-right">
-      <button id="loadListBtn" class="secondary">Lista betöltése</button>
-      <button id="generateMissingBtn" class="secondary">Hiányzó képek generálása</button>
-
-      <div style="display:flex;align-items:center;gap:0.25rem;">
-        <input id="bulkQtyInput" type="number" min="0" step="1" value="1">
-        <span>db</span>
+      <!-- Kirakási beállítások (a Lista betöltése gomb fölötti sorban) -->
+      <div class="layout-row">
+        <label>
+          Elrendezés:
+          <select id="layoutModeSelect">
+            <option value="grid" selected>Rács</option>
+            <option value="shelf">Polc</option>
+          </select>
+        </label>
+        <label>
+          Szélesség:
+          <input id="sheetWidthInput" type="number" min="1" step="1" value="600">
+          mm
+        </label>
+        <label>
+          Magasság:
+          <input id="sheetHeightInput" type="number" min="1" step="1" value="400">
+          mm
+        </label>
+        <label>
+          Köz:
+          <input id="shapeGapInput" type="number" min="0" step="0.1" value="2">
+          mm
+        </label>
       </div>
-      <button id="bulkApplyBtn" class="secondary">mind</button>
-      <button id="saveAllBtn" class="primary">MENTÉS</button>
+
+      <div class="action-row">
+        <button id="loadListBtn" class="secondary">Lista betöltése</button>
+        <button id="generateMissingBtn" class="secondary">Hiányzó képek generálása</button>
+
+        <div style="display:flex;align-items:center;gap:0.25rem;">
+          <input id="bulkQtyInput" type="number" min="0" step="1" value="1">
+          <span>db</span>
+        </div>
+        <button id="bulkApplyBtn" class="secondary">mind</button>
+        <button id="saveAllBtn" class="primary">MENTÉS</button>
+      </div>
     </div>
   </div>
 </div>
@@ -305,14 +374,14 @@
   </div>
 </div>
 
-<script src="./pehely-core_v53.js"></script>
+<script src="./pehely-core.js"></script>
 
 <script>
 
   // ====== PehelyCore (közös algoritmus modul) ======
   const PC = window.PehelyCore;
   if (!PC) {
-    alert('Hiányzik a pehely-core.js (tedd a HTML-ek mellé ugyanabba a mappába).');
+    alert('Hiányzik a PehelyCore (pehely-core.js). Tedd a HTML-ek mellé ugyanabba a mappába. Ha csak verziószámos (pl. pehely-core_v63.js) van, nevezd át pehely-core.js-re.');
     throw new Error('PehelyCore hiányzik');
   }
   const {
@@ -535,8 +604,8 @@
   const summaryTotalPiecesEl   = document.getElementById('summaryTotalPieces');
 
   function updateSummaryCounts() {
-    // összes típus a mappában: olyan itemek, amelyeknek van valódi fileHandle-je
-    const totalFolderTypes = items.filter(it => !!it.fileHandle).length;
+    // összes típus a mappában: olyan itemek, amelyekhez van valódi JPG (nem virtuális)
+    const totalFolderTypes = items.filter(it => !it.isVirtual).length;
 
     // kiválasztott típusok: item.quantity > 0
     let selectedTypes = 0;
@@ -808,14 +877,40 @@ async function scanSources() {
     }
   }
 
+  function inferSelectedFolderName(files) {
+    // Fallback mappa-kijelölésnél (webkitdirectory) a böngésző nem ad "mappa handle"-t.
+    // Sok esetben elérhető a webkitRelativePath, pl. "MappaAlja/valami.jpg".
+    // Ebből (ha egyértelmű) ki tudjuk írni a mappa nevét az UI-ban.
+    try {
+      const roots = new Set();
+      for (const f of (files || [])) {
+        const rel = (f && f.webkitRelativePath) ? String(f.webkitRelativePath) : '';
+        if (!rel) continue;
+        const root = rel.split('/')[0];
+        if (root) roots.add(root);
+        if (roots.size > 1) break;
+      }
+      if (roots.size === 1) return Array.from(roots)[0];
+    } catch (_) {}
+    return null;
+  }
+
   function onFolderFilesSelected(evt) {
     const files = Array.from(evt.target.files || []).filter(f => (f.name || '').toLowerCase().endsWith('.jpg'));
     currentSelectedFiles = files;
     currentDirectoryHandle = null;
     saveManager.setOutDirHandle(null);
-    currentFolderNameEl.textContent = files.length ? `Kijelölt fájlok (${files.length})` : '—';
+
+    const folderName = inferSelectedFolderName(files);
+    if (folderName) {
+      currentFolderNameEl.textContent = `${folderName} (${files.length})`;
+    } else {
+      currentFolderNameEl.textContent = files.length ? `Kijelölt fájlok (${files.length})` : '—';
+    }
+
     scanSources();
   }
+
 
   function onJsonFileSelected(evt) {
     const file = (evt.target.files && evt.target.files[0]) ? evt.target.files[0] : null;
@@ -903,7 +998,9 @@ async function scanCurrentFolder() {
   async function loadListFromJson() {
     const jsonInput = document.getElementById('jsonFileInput');
 
-    if (window.showOpenFilePicker) {
+    // Preferált: File System Access API (Chrome/Edge) – csak biztonságos kontextusban
+    // (file:// alatt gyakran létezik a függvény, de a hívás nem engedélyezett).
+    if (window.showOpenFilePicker && window.isSecureContext) {
       try {
         const [handle] = await window.showOpenFilePicker({
           types: [{
@@ -917,13 +1014,17 @@ async function scanCurrentFolder() {
 
         applyQuantitiesFromJsonData(data);
         await scanSources();
+        return;
       } catch (e) {
-        console.warn('Lista betöltése megszakítva vagy hiba:', e);
+        // Ha a felhasználó megszakítja, ne nyissunk másik picker-t.
+        if (e && e.name === 'AbortError') return;
+
+        // Egyéb hiba esetén (pl. jogosultság/korlátozás) menjünk fallback-re.
+        console.warn('Lista betöltése showOpenFilePicker-rel nem sikerült, fallback lesz:', e);
       }
-      return;
     }
 
-    // Fallback: sima file input
+    // Fallback: sima file input (mindenhol működik, Letöltésekből is)
     if (jsonInput) {
       jsonInput.value = '';
       jsonInput.click();
@@ -932,6 +1033,7 @@ async function scanCurrentFolder() {
 
     alert('A böngésződben nem érhető el a JSON betöltése.');
   }
+
 
   // ====== Hiányzó képek generálása ======
 
@@ -1079,21 +1181,69 @@ async function scanCurrentFolder() {
       flakeData.push({ code, count, contours, minX, maxX, minY, maxY, width, height });
     }
 
-        let dxfString = '';
+    let dxfString = '';
     if (totalCount > 0 && flakeData.length > 0) {
-      const gap = 2.0; // mm
-      const cellSize = Math.max(maxWidth, maxHeight) + 2 * gap;
-      const cols = Math.ceil(Math.sqrt(totalCount));
+      const layoutMode = (document.getElementById('layoutModeSelect')?.value || 'grid');
+      let sheetW = parseFloat(document.getElementById('sheetWidthInput')?.value ?? '600');
+      let sheetH = parseFloat(document.getElementById('sheetHeightInput')?.value ?? '400');
+      let clearance = parseFloat(document.getElementById('shapeGapInput')?.value ?? '2');
+
+      if (!Number.isFinite(sheetW) || sheetW <= 0) sheetW = 600;
+      if (!Number.isFinite(sheetH) || sheetH <= 0) sheetH = 400;
+      if (!Number.isFinite(clearance) || clearance < 0) clearance = 2;
+
+      // A "Köz" a tényleges biztonsági távolság két alakzat közt.
+      // Ehhez oldalanként pad = clearance/2 margót számolunk a pakolásnál.
+      const pad = clearance / 2;
+      const SHEET_SPACING = 100.0; // mm, két kirakási terület közt
 
       const NL = '\r\n';
       function add(code, value) {
         dxfString += code + NL + value + NL;
       }
+
       // Blokk név: a PEHELY-kód DXF-kompatibilis változata (core-ban egységesítve)
       const blockNameForCode = (code) => PehelyCore.blockNameFromCode(code);
 
-add(0, 'SECTION');
+      add(0, 'SECTION');
       add(2, 'HEADER');
+      add(0, 'ENDSEC');
+
+      // ===== TABLES: minimálisan, hogy a "keret" fólia/layer biztosan látszódjon =====
+      add(0, 'SECTION');
+      add(2, 'TABLES');
+
+      // LTYPE: CONTINUOUS
+      add(0, 'TABLE');
+      add(2, 'LTYPE');
+      add(70, 1);
+      add(0, 'LTYPE');
+      add(2, 'CONTINUOUS');
+      add(70, 0);
+      add(3, 'Solid line');
+      add(72, 65);
+      add(73, 0);
+      add(40, 0.0);
+      add(0, 'ENDTAB');
+
+      // LAYER: 0 + keret
+      add(0, 'TABLE');
+      add(2, 'LAYER');
+      add(70, 2);
+
+      add(0, 'LAYER');
+      add(2, '0');
+      add(70, 0);
+      add(62, 7);
+      add(6, 'CONTINUOUS');
+
+      add(0, 'LAYER');
+      add(2, 'keret');
+      add(70, 0);
+      add(62, 3);
+      add(6, 'CONTINUOUS');
+
+      add(0, 'ENDTAB');
       add(0, 'ENDSEC');
 
       // ===== BLOCKS: minden hópehely külön BLOCK, (0,0)-ba központosítva =====
@@ -1137,34 +1287,121 @@ add(0, 'SECTION');
 
       add(0, 'ENDSEC');
 
-      // ===== ENTITIES: INSERT-ek rácsban, a beszúrási pont a cella közepe =====
+      // ===== ENTITIES: INSERT-ek (Rács / Polc), a kirakás bal-felső sarokból indul =====
       add(0, 'SECTION');
       add(2, 'ENTITIES');
 
-      let index = 0;
-      for (const flake of flakeData) {
-        const blockName = blockNames.get(flake.code);
-        for (let i = 0; i < flake.count; i++) {
-          const row = Math.floor(index / cols);
-          const col = index % cols;
+      const placements = []; // { blockName, x, y, sheetIndex }
+      let maxSheetIndex = 0;
 
-          const baseX = col * cellSize;
-          const baseY = -row * cellSize;
+      if (layoutMode === 'shelf') {
+        // Polc (shelf) pakolás: sorok változó magassággal
+        const sortedTypes = [...flakeData].sort((a, b) => {
+          const ah = a.height + 2 * pad;
+          const bh = b.height + 2 * pad;
+          if (bh !== ah) return bh - ah;
+          const aw = a.width + 2 * pad;
+          const bw = b.width + 2 * pad;
+          return bw - aw;
+        });
 
-          const cxCell = baseX + cellSize / 2;
-          const cyCell = baseY + cellSize / 2;
+        let sheetIndex = 0;
+        let x = 0;
+        let y = 0;
+        let shelfH = 0;
 
-          add(0, 'INSERT');
-          add(8, '0');
-          add(2, blockName);
-          add(10, cxCell.toFixed(4));
-          add(20, cyCell.toFixed(4));
-          add(30, 0);
-          add(41, 1); add(42, 1); add(43, 1);
-          add(50, 0);
+        for (const flake of sortedTypes) {
+          const blockName = blockNames.get(flake.code);
+          const bboxW = flake.width + 2 * pad;
+          const bboxH = flake.height + 2 * pad;
 
-          index++;
+          if (bboxW > sheetW || bboxH > sheetH) {
+            console.warn(`A(z) ${flake.code} hópehely (bbox ${bboxW.toFixed(2)}×${bboxH.toFixed(2)} mm) nagyobb, mint a kirakási terület (${sheetW}×${sheetH} mm). Kilóghat a keretből.`);
+          }
+
+          for (let i = 0; i < flake.count; i++) {
+            if (x > 0 && (x + bboxW) > sheetW) {
+              y += shelfH;
+              x = 0;
+              shelfH = 0;
+            }
+            if (y > 0 && (y + bboxH) > sheetH) {
+              sheetIndex++;
+              x = 0;
+              y = 0;
+              shelfH = 0;
+            }
+
+            const centerX = x + pad + (flake.width / 2);
+            const centerYDown = y + pad + (flake.height / 2);
+            const sheetOffset = sheetIndex * (sheetH + SHEET_SPACING);
+            const insX = centerX;
+            const insY = -(sheetOffset + centerYDown);
+
+            placements.push({ blockName, x: insX, y: insY, sheetIndex });
+            if (sheetIndex > maxSheetIndex) maxSheetIndex = sheetIndex;
+
+            x += bboxW;
+            shelfH = Math.max(shelfH, bboxH);
+          }
         }
+      } else {
+        // Rács (grid): azonos cellák (a legnagyobb pehely alapján)
+        const cellSize = Math.max(maxWidth, maxHeight) + 2 * pad; // = maxDim + clearance
+        let colsPerSheet = Math.floor(sheetW / cellSize);
+        let rowsPerSheet = Math.floor(sheetH / cellSize);
+        if (colsPerSheet < 1) colsPerSheet = 1;
+        if (rowsPerSheet < 1) rowsPerSheet = 1;
+        const capacityPerSheet = colsPerSheet * rowsPerSheet;
+
+        let index = 0;
+        for (const flake of flakeData) {
+          const blockName = blockNames.get(flake.code);
+          for (let i = 0; i < flake.count; i++) {
+            const sheetIndex = Math.floor(index / capacityPerSheet);
+            const within = index % capacityPerSheet;
+            const row = Math.floor(within / colsPerSheet);
+            const col = within % colsPerSheet;
+
+            const centerX = (col * cellSize) + (cellSize / 2);
+            const centerYDown = (row * cellSize) + (cellSize / 2);
+            const sheetOffset = sheetIndex * (sheetH + SHEET_SPACING);
+            const insY = -(sheetOffset + centerYDown);
+
+            placements.push({ blockName, x: centerX, y: insY, sheetIndex });
+            if (sheetIndex > maxSheetIndex) maxSheetIndex = sheetIndex;
+            index++;
+          }
+        }
+      }
+
+      // Kirakási területek kerete (layer: keret)
+      for (let s = 0; s <= maxSheetIndex; s++) {
+        const off = s * (sheetH + SHEET_SPACING);
+        add(0, 'LWPOLYLINE');
+        add(8, 'keret');
+        add(90, 4);
+        add(70, 1); // zárt
+        add(10, (0).toFixed(4));
+        add(20, (-off).toFixed(4));
+        add(10, (sheetW).toFixed(4));
+        add(20, (-off).toFixed(4));
+        add(10, (sheetW).toFixed(4));
+        add(20, (-(off + sheetH)).toFixed(4));
+        add(10, (0).toFixed(4));
+        add(20, (-(off + sheetH)).toFixed(4));
+      }
+
+      // Hópelyhek beszúrása
+      for (const p of placements) {
+        add(0, 'INSERT');
+        add(8, '0');
+        add(2, p.blockName);
+        add(10, p.x.toFixed(4));
+        add(20, p.y.toFixed(4));
+        add(30, 0);
+        add(41, 1); add(42, 1); add(43, 1);
+        add(50, 0);
       }
 
       add(0, 'ENDSEC');
@@ -1179,7 +1416,7 @@ const now = new Date();
     }
 
     const jsonData = {
-      version: 'HAVAZO_V53',
+      version: ('HAVAZO_' + ((PC && PC.VERSION) ? PC.VERSION.toUpperCase() : 'V62')),
       generatedAt: now.toISOString(),
       items: codesWithCounts
     };
@@ -1191,6 +1428,23 @@ const now = new Date();
 
   // ====== Init ======
   window.addEventListener('load', () => {
+    // Verzió (kívül-belül egységesen)
+    const vEl = document.getElementById('appVersion');
+    const v = (PC && PC.VERSION) ? PC.VERSION : 'v63';
+    if (vEl) vEl.textContent = v;
+    document.title = 'Rodé Lajos - HAVAZO ' + v;
+
+    // GENERÁTOR gomb: host (iframe) módban fülváltás, különben navigáció.
+    const gotoLink = document.getElementById('gotoPehelyLink');
+    if (gotoLink) {
+      gotoLink.addEventListener('click', (ev) => {
+        if (window.parent && window.parent !== window) {
+          ev.preventDefault();
+          window.parent.postMessage({ type: 'switchTab', tab: 'pehely' }, '*');
+        }
+      });
+    }
+
     document.getElementById('chooseFolderBtn')
       .addEventListener('click', pickFolderAndScan);
     document.getElementById('folderFileInput').addEventListener('change', onFolderFilesSelected);

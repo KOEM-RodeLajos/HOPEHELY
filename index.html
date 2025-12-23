@@ -1,932 +1,140 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="hu">
 <head>
-  <meta charset="UTF-8">
-  <title>Rodé Lajos - Hópehely generátor v53</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>HÓPEHELY – Host v63</title>
   <style>
-    * {
+    :root {
+      --bar-h: 56px;
+      --bg: #111;
+      --fg: #eee;
+      --muted: #9aa0a6;
+      --accent: #2b78ff;
+      --btn: #222;
+      --btnBorder: #3a3a3a;
+    }
+    html, body {
+      height: 100%;
+      margin: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    }
+    .app {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      height: var(--bar-h);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px;
       box-sizing: border-box;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont,
-                   "Segoe UI", sans-serif;
+      background: #0b0b0b;
+      border-bottom: 1px solid #2a2a2a;
     }
-    body {
-      margin: 0;
-      padding: 0;
-      background: #f2f4f8;
-      color: #222;
-    }
-    h1 {
-      font-size: 1.4rem;
-      margin: 0 0 0.5rem 0;
-    }
-    .version {
-      font-weight: normal; /* NE legyen félkövér */
-      margin-left: 0.3rem;
-      font-size: 0.95rem;
-      color: #555;
-    }
-    h2 {
-      font-size: 1rem;
-      margin: 0 0 0.5rem 0;
-    }
-    .page {
-      max-width: 1100px;
-      margin: 0 auto;
-      padding: 1rem;
-    }
-    .container {
+    .tabs {
       display: flex;
-      gap: 1rem;
-      align-items: stretch;
-    }
-    .controls {
-      flex: 0 0 360px;
-      background: #fff;
-      border-radius: 8px;
-      padding: 0.8rem 1rem 1rem;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.08);
-    }
-    .canvas-container {
-      flex: 1;
-      background: #001633;
-      border-radius: 8px;
-      padding: 0.5rem;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.08);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      overflow: hidden; /* mobilon ne lógjon ki a vászon */
-    }
-    canvas {
-      border-radius: 8px;
-      background: #001633;
-      box-shadow: inset 0 0 6px rgba(0,0,0,0.4);
-      display: block;
-      width: 100%;
-      height: auto;
-      max-width: 600px; /* desktopen maradjon a natív méret */
-      max-height: 100%;
-    }
-
-    .control-group {
-      margin-bottom: 0.8rem;
-    }
-    .control-group label {
-      display: block;
-      font-size: 0.85rem;
-      margin-bottom: 0.2rem;
-    }
-
-    /* Két legördülő egymás mellett (Végforma + Lefutás) */
-    .dual-row {
-      display: flex;
-      gap: 0.6rem;
-      align-items: flex-end;
-    }
-    .dual-item {
-      flex: 1 1 0;
-      min-width: 0;
-    }
-    @media (max-width: 600px) {
-      .dual-row {
-        flex-direction: column;
-        align-items: stretch;
-      }
-    }
-
-    .control-row {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-    }
-    .control-row input[type="range"] {
+      gap: 8px;
       flex: 1;
     }
-    .control-row input[type="number"] {
-      width: 4.5rem;
-      padding: 0.1rem 0.2rem;
+    .tab {
+      flex: 1;
+      height: 40px;
+      border: 1px solid var(--btnBorder);
+      background: var(--btn);
+      color: var(--fg);
+      border-radius: 10px;
+      font-size: 15px;
+      font-weight: 600;
     }
-    select {
-      width: 100%;
-      padding: 0.15rem 0.2rem;
-      font-size: 0.85rem;
+    .tab[aria-selected="true"] {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px rgba(43,120,255,0.35) inset;
     }
-
-    hr.separator {
-      border: 0;
-      border-top: 1px solid #dee2e6;
-      margin: 0.5rem 0;
-    }
-
-    .checkbox-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.8rem;
-      font-size: 0.85rem;
-      align-items: center;
-    }
-    .checkbox-row label {
-      display: flex;
-      align-items: center;
-      gap: 0.25rem;
-      margin: 0;
-    }
-
-    .buttons {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.5rem;
-      margin-top: 0.5rem;
-    }
-    button {
-      flex: 1 1 48%;
-      padding: 0.35rem 0.6rem;
-      border-radius: 6px;
-      border: none;
-      cursor: pointer;
-      font-size: 0.85rem;
-      font-weight: 500;
-      transition: background 0.15s, box-shadow 0.15s, transform 0.05s;
+    .hint {
+      display: none;
+      font-size: 12px;
+      color: var(--muted);
       white-space: nowrap;
+      padding-right: 4px;
     }
-    button.primary {
-      background: #0d6efd;
-      color: #fff;
+    @media (min-width: 700px) {
+      .hint { display: block; }
+      .tab { max-width: 220px; }
+      .tabs { flex: 0; }
     }
-    button.secondary {
-      background: #e9ecef;
-      color: #222;
+    .framewrap {
+      flex: 1;
+      min-height: 0;
+      position: relative;
     }
-    button:hover {
-      box-shadow: 0 1px 4px rgba(0,0,0,0.18);
+    iframe {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      border: 0;
+      background: #fff;
     }
-    button:active {
-      transform: translateY(1px);
-      box-shadow: none;
-    }
-
-    @media (max-width: 900px) {
-      .container {
-        flex-direction: column;
-      }
-      .controls {
-        flex: none;
-        width: 100%;
-      }
-    }
-  @media (max-width: 600px) {
-  .page {
-    padding: 0.6rem;
-  }
-  h1 {
-    font-size: 1.15rem;
-  }
-  .container {
-    gap: 0.6rem;
-  }
-  .controls {
-    padding: 0.6rem 0.8rem 0.8rem;
-    max-height: 45vh;          /* hogy a vászon is látszódjon */
-    overflow: auto;
-    -webkit-overflow-scrolling: touch;
-  }
-  .buttons {
-    position: sticky;          /* mobilon a gombok maradjanak kéznél */
-    bottom: 0;
-    background: #fff;
-    padding: 0.5rem 0 0.2rem;
-    margin-top: 0.6rem;
-  }
-  .canvas-container {
-    padding: 0.35rem;
-    min-height: 50vh;
-  }
-  button {
-    flex: 1 1 48%;
-  }
-}
+    iframe.hidden { display: none; }
   </style>
 </head>
 <body>
-<div class="page">
-  <h1>
-    Rodé Lajos - Hópehely generátor
-    <span class="version">v53</span>
-  </h1>
-
-  <div class="container">
-    <div class="controls">
-      <h2>Paraméterek</h2>
-
-      <!-- Fő paraméterek -->
-      <div class="control-group">
-        <label for="angleSlider">Szög (°)</label>
-        <div class="control-row">
-          <input id="angleSlider" type="range" min="10" max="120" step="1" value="60">
-          <input id="angleInput" type="number" min="10" max="120" step="1" value="60">
-        </div>
+  <div class="app">
+    <div class="topbar">
+      <div class="tabs" role="tablist" aria-label="Hópehely alkalmazások">
+        <button id="tabPehely" class="tab" role="tab" aria-selected="true">Generátor</button>
+        <button id="tabHavazo" class="tab" role="tab" aria-selected="false">Havazó</button>
       </div>
-
-      <div class="control-group">
-        <label for="ratioSlider">Vastagság (%)</label>
-        <div class="control-row">
-          <input id="ratioSlider" type="range" min="5" max="40" step="1" value="15">
-          <input id="ratioInput" type="number" min="5" max="40" step="1" value="15">
-        </div>
-      </div>
-
-      <div class="control-group">
-        <label for="spacingSlider">Köz (%)</label>
-        <div class="control-row">
-          <input id="spacingSlider" type="range" min="10" max="50" step="1" value="50">
-          <input id="spacingInput" type="number" min="10" max="50" step="1" value="50">
-        </div>
-      </div>
-
-      <div class="control-group">
-        <label for="reductionSlider">Méretcsökkenés (%)</label>
-        <div class="control-row">
-          <input id="reductionSlider" type="range" min="0" max="70" step="1" value="50">
-          <input id="reductionInput" type="number" min="0" max="70" step="1" value="50">
-        </div>
-      </div>
-
-      
-      <div class="control-group">
-        <div class="dual-row">
-          <div class="dual-item">
-            <label for="tipStyleSelect">Végforma</label>
-            <select id="tipStyleSelect">
-              <option value="straight">Egyenes</option>
-              <option value="tent">Háromszög</option>
-              <option value="trap">Trapéz</option>
-              <option value="hex">Hatszög</option>
-              <option value="Y">Y</option>
-            </select>
-          </div>
-
-          <div class="dual-item">
-            <label for="runoffSelect">Lefutás</label>
-            <select id="runoffSelect">
-              <option value="Oo.">Oo.</option>
-              <option value=".oO">.oO</option>
-              <option value="ooo">ooo</option>
-              <option value="oOo">oOo</option>
-            </select>
-          </div>
-        </div>
-      </div>
-
-      <div class="control-group">
-        <label for="tipScaleSlider">Végforma méret</label>
-        <div class="control-row">
-          <input id="tipScaleSlider" type="range" min="0.1" max="5" step="0.1" value="1.0">
-          <input id="tipScaleInput" type="number" min="0.1" max="5" step="0.1" value="1.0">
-        </div>
-      </div>
-
-      <hr class="separator">
-
-      <div class="control-group">
-        <label for="armsSlider">Karok száma</label>
-        <div class="control-row">
-          <input id="armsSlider" type="range" min="3" max="12" step="1" value="6">
-          <input id="armsInput" type="number" min="3" max="12" step="1" value="6">
-        </div>
-      </div>
-
-      <hr class="separator">
-
-      <div class="control-group">
-        <label for="minRectSlider">Min. vastagság (mm)</label>
-        <div class="control-row">
-          <input id="minRectSlider" type="range" min="0" max="10" step="0.1" value="3.0">
-          <input id="minRectInput" type="number" min="0" max="10" step="0.1" value="3.0">
-        </div>
-      </div>
-
-      <div class="control-group">
-        <div class="checkbox-row">
-          <label>
-            <input type="checkbox" id="growSmallCheckbox" checked>
-            Kisebbek növelése
-          </label>
-        </div>
-      </div>
-
-      <!-- Végforma + törzs kapcsolók -->
-      <div class="control-group">
-        <div class="checkbox-row">
-          <label>
-            <input type="checkbox" id="tipOnlyCheckbox">
-            Csak végforma
-          </label>
-          <label>
-            <input type="checkbox" id="tipCenterCheckbox" checked>
-            Közép
-          </label>
-          <label>
-            <input type="checkbox" id="showTrunkCheckbox" checked>
-            Törzs
-          </label>
-        </div>
-      </div>
-
-      <!-- ÚJ: VÁLOGATÁS gomb a HAVAZO-hoz -->
-      <hr class="separator">
-      <div class="control-group">
-        <button id="gotoHavazoBtn" class="secondary" style="width:100%;">VÁLOGATÁS</button>
-      </div>
-      <hr class="separator">
-
-      <!-- Gombok -->
-      <div class="buttons">
-        <button id="randomBtn" class="secondary">Véletlen paraméterek</button>
-        <button id="toggleOutlineBtn" class="secondary">Kontúr ki/be</button>
-        <button id="loadFromJpgBtn" class="secondary">Betöltés (JPG)</button>
-        <button id="saveBtn" class="primary">MENTÉS</button>
-      </div>
+      <div class="hint">v63 • ha a fülek között váltasz, nem felejt állapotot</div>
     </div>
 
-    <div class="canvas-container">
-      <canvas id="snowflakeCanvas" width="600" height="600"></canvas>
+    <div class="framewrap">
+      <iframe id="framePehely" title="Hópehely Generátor" src="./pehely.html"></iframe>
+      <iframe id="frameHavazo" class="hidden" title="Havazó" src="./havazo.html"></iframe>
     </div>
   </div>
-</div>
 
-<script src="./pehely-core_v53.js"></script>
+  <script>
+    const tabPehely = document.getElementById('tabPehely');
+    const tabHavazo = document.getElementById('tabHavazo');
+    const framePehely = document.getElementById('framePehely');
+    const frameHavazo = document.getElementById('frameHavazo');
 
-<script>
-  'use strict';
-  // ====== PehelyCore (közös algoritmus modul) ======
-  const PC = window.PehelyCore;
-  if (!PC) {
-    alert('Hiányzik a pehely-core (JS) (tedd a HTML-ek mellé ugyanabba a mappába).');
-    throw new Error('PehelyCore hiányzik');
-  }
-  const {
-    paramsFromCode,
-    buildCodeFromParams,
-    buildSingleTreeSegments,
-    buildSnowflakeSegments,
-    makeRectFromBase,
-    segmentToPolys,
-    computePolysForParams,
-    computePolysForCode,
-    buildLaserContoursExact,
-    computeContoursForParams,
-    computeContoursForCode: coreComputeContoursForCode,
-    addJpegCommentToArrayBuffer,
-    createJpegBlobForCode,
-    parseCodeFromJpegArrayBuffer
-  } = PC;
-
-
-
-  // ====== Általános segédek (mentés) ======
-  function downloadBlob(blob, filename) {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }
-
-  // ====== Save manager: mappa ha lehet, különben Letöltések ======
-  const saveManager = (() => {
-    // mode: 'unknown' | 'dir' | 'download'
-    let mode = 'unknown';
-    let outDirHandle = null;
-
-    function canUseDir() {
-      return !!window.showDirectoryPicker && !!window.isSecureContext;
+    function setTab(which) {
+      const isPehely = which === 'pehely';
+      tabPehely.setAttribute('aria-selected', isPehely ? 'true' : 'false');
+      tabHavazo.setAttribute('aria-selected', !isPehely ? 'true' : 'false');
+      framePehely.classList.toggle('hidden', !isPehely);
+      frameHavazo.classList.toggle('hidden', isPehely);
+      // hash csak kényelmi: visszatéréskor jó helyre jöjjön
+      location.hash = isPehely ? '#pehely' : '#havazo';
     }
 
-    async function ensureOutDir() {
-      if (mode === 'download') return null;
-      if (outDirHandle) return outDirHandle;
+    tabPehely.addEventListener('click', () => setTab('pehely'));
+    tabHavazo.addEventListener('click', () => setTab('havazo'));
 
-      if (!canUseDir()) {
-        mode = 'download';
-        return null;
-      }
-
-      try {
-        outDirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
-        if (outDirHandle && outDirHandle.queryPermission) {
-          let p = await outDirHandle.queryPermission({ mode: 'readwrite' });
-          if (p !== 'granted' && outDirHandle.requestPermission) {
-            p = await outDirHandle.requestPermission({ mode: 'readwrite' });
-          }
-          if (p !== 'granted') {
-            outDirHandle = null;
-            mode = 'download';
-            return null;
-          }
+    // Iframe-ek üzenete: fülváltás (postMessage)
+    window.addEventListener('message', (ev) => {
+      const msg = ev.data || {};
+      if (msg && msg.type === 'switchTab') {
+        if (msg.tab === 'pehely' || msg.tab === 'havazo') {
+          setTab(msg.tab);
         }
-        mode = outDirHandle ? 'dir' : 'download';
-        return outDirHandle;
-      } catch (e) {
-        console.warn('Kimeneti mappa kiválasztása megszakítva vagy hiba:', e);
-        mode = 'download';
-        outDirHandle = null;
-        return null;
       }
-    }
-
-    async function writeToDir(dirHandle, filename, blob) {
-      const fileHandle = await dirHandle.getFileHandle(filename, { create: true });
-      const writable = await fileHandle.createWritable();
-      await writable.write(blob);
-      await writable.close();
-    }
-
-    async function saveMany(files) {
-      const dir = await ensureOutDir();
-      if (dir) {
-        for (const f of files) {
-          try {
-            await writeToDir(dir, f.name, f.blob);
-          } catch (e) {
-            console.warn('Nem sikerült mappába menteni, letöltés lesz:', e);
-            downloadBlob(f.blob, f.name);
-          }
-        }
-        return { mode: 'dir' };
-      } else {
-        for (const f of files) downloadBlob(f.blob, f.name);
-        return { mode: 'download' };
-      }
-    }
-
-    function setOutDirHandle(dirHandleOrNull) {
-      outDirHandle = dirHandleOrNull || null;
-      mode = outDirHandle ? 'dir' : 'unknown';
-    }
-
-    function reset() {
-      outDirHandle = null;
-      mode = 'unknown';
-    }
-
-    return { saveMany, ensureOutDir, setOutDirHandle, reset };
-  })();
-
-
-
-  async function saveFileWithPickerOrDownload(suggestedName, mimeType, data) {
-    const blob = (data instanceof Blob) ? data : new Blob([data], { type: mimeType });
-    await saveManager.saveMany([{ name: suggestedName, blob }]);
-  }
-
-  // ====== PEHELY geometria (ugyanaz a logika, mint a HAVAZO-ban) ======
-  const DXF_TARGET_SIZE = 100.0; // mm
-  const geometryCache = new Map(); // code -> { contoursWithFlags }
-
-  // [KISZERVEZVE pehely-core.js-be] paramsFromCode
-
-
-  // [KISZERVEZVE pehely-core.js-be] makeRectFromBase
-
-
-  // [KISZERVEZVE pehely-core.js-be] scalePolygon
-
-
-  // [KISZERVEZVE pehely-core.js-be] buildSingleTreeSegments
-
-
-  // [KISZERVEZVE pehely-core.js-be] buildSnowflakeSegments
-
-
-  // [KISZERVEZVE pehely-core.js-be] buildTentHexFromEdge
-
-
-  // [KISZERVEZVE pehely-core.js-be] buildRegularHexFromEdge
-
-
-  // [KISZERVEZVE pehely-core.js-be] buildTrapHexFromEdge
-
-
-  // [KISZERVEZVE pehely-core.js-be] segmentToPolys
-
-
-  // [KISZERVEZVE pehely-core.js-be] pointInPolygon
-
-
-  // [KISZERVEZVE pehely-core.js-be] buildLaserContoursExact
-
-
-  function computeContoursForCode(codeString, paramsOverride = null) {
-    const params = paramsOverride || paramsFromCode(codeString);
-    const runoffKey = (params && params.runoff) ? params.runoff : 'Oo.';
-    const cacheKey = `${codeString}|RUNOFF:${runoffKey}`;
-    if (geometryCache.has(cacheKey)) return geometryCache.get(cacheKey);
-
-    const result = computeContoursForParams(params);
-    geometryCache.set(cacheKey, result);
-    return result;
-  }
-
-  // [KISZERVEZVE pehely-core.js-be] computePolysForParams
-
-
-  // [KISZERVEZVE pehely-core.js-be] computePolysForCode
-
-
-
-  // ====== JPG komment (PEHELY-kód) ======
-  // [KISZERVEZVE pehely-core.js-be] addJpegCommentToArrayBuffer
-
-
-  // [KISZERVEZVE pehely-core.js-be] parseCodeFromJpegArrayBuffer
-
-
-  // [KISZERVEZVE pehely-core.js-be] createJpegBlobForCode
-
-
-  // ====== UI-hez tartozó logika ======
-  let currentCode = null;
-  let currentPolyData = null;
-  let currentParams = null;
-  let showOutline = false; // alapból kontúr kikapcsolva
-
-  function syncInputPair(sliderId, numberId, onChange) {
-    const slider = document.getElementById(sliderId);
-    const input  = document.getElementById(numberId);
-
-    slider.addEventListener('input', () => {
-      input.value = slider.value;
-      onChange();
     });
 
-    input.addEventListener('change', () => {
-      let v = parseFloat(input.value);
-      const min = parseFloat(slider.min);
-      const max = parseFloat(slider.max);
-      if (isNaN(v)) v = min;
-      v = Math.max(min, Math.min(max, v));
-      input.value = v;
-      slider.value = v;
-      onChange();
-    });
-  }
-
-  function getParamsFromUI() {
-    const angleVal    = parseFloat(document.getElementById('angleSlider').value);
-    const ratioVal    = parseFloat(document.getElementById('ratioSlider').value);
-    const spacingVal  = parseFloat(document.getElementById('spacingSlider').value);
-    const redVal      = parseFloat(document.getElementById('reductionSlider').value);
-    const armsVal     = parseInt(document.getElementById('armsSlider').value, 10);
-    const minRectVal  = parseFloat(document.getElementById('minRectSlider').value);
-    const growSmall   = document.getElementById('growSmallCheckbox').checked;
-    const tipScaleVal = parseFloat(document.getElementById('tipScaleSlider').value);
-    const tipStyleVal = document.getElementById('tipStyleSelect').value;
-    const runoffVal = (document.getElementById('runoffSelect') && document.getElementById('runoffSelect').value) ? document.getElementById('runoffSelect').value : 'Oo.';
-
-    const tipOnly  = document.getElementById('tipOnlyCheckbox').checked;
-    const tipCenter= document.getElementById('tipCenterCheckbox').checked;
-    const showTrunk= document.getElementById('showTrunkCheckbox').checked;
-
-    let tipMode = 0;
-    if (tipStyleVal === 'tent') tipMode = 1;
-    else if (tipStyleVal === 'Y') tipMode = 2;
-    else if (tipStyleVal === 'hex') tipMode = 3;
-    else if (tipStyleVal === 'trap') tipMode = 4;
-
-    return {
-      branchAngleDeg:    Number.isFinite(angleVal)   ? angleVal   : 60,
-      rectAspectPercent: Number.isFinite(ratioVal)   ? ratioVal   : 15,
-      spacingPercent:    Number.isFinite(spacingVal) ? spacingVal : 50,
-      reductionPercent:  Number.isFinite(redVal)     ? redVal     : 50,
-      tipMode,
-      tipScale:          Number.isFinite(tipScaleVal)? tipScaleVal: 1.0,
-      tipOnly,
-      tipAtCenter:       tipCenter,
-      showTrunk,
-      armCount:          Number.isFinite(armsVal)    ? armsVal    : 6,
-      minRectMm:         Number.isFinite(minRectVal) ? minRectVal : 3.0,
-      runoff:           runoffVal,
-      growSmallRects:    growSmall
-    };
-  }
-
-  function applyParamsToUI(p) {
-    const setPair = (sliderId, inputId, v) => {
-      const s = document.getElementById(sliderId);
-      const i = document.getElementById(inputId);
-      s.value = v;
-      i.value = v;
-    };
-
-    setPair('angleSlider',    'angleInput',    p.branchAngleDeg);
-    setPair('ratioSlider',    'ratioInput',    p.rectAspectPercent);
-    setPair('spacingSlider',  'spacingInput',  p.spacingPercent);
-    setPair('reductionSlider','reductionInput',p.reductionPercent);
-    setPair('tipScaleSlider', 'tipScaleInput', p.tipScale);
-    setPair('armsSlider',     'armsInput',     p.armCount);
-    setPair('minRectSlider',  'minRectInput',  p.minRectMm);
-
-    let tipVal = 'straight';
-    if      (p.tipMode === 1) tipVal = 'tent';
-    else if (p.tipMode === 2) tipVal = 'Y';
-    else if (p.tipMode === 3) tipVal = 'hex';
-    else if (p.tipMode === 4) tipVal = 'trap';
-    document.getElementById('tipStyleSelect').value = tipVal;
-
-    // Lefutás (nincs a kódban, ezért alapértelmezett érték)
-    const rv = (p && p.runoff) ? p.runoff : 'Oo.';
-    const rs = document.getElementById('runoffSelect');
-    if (rs) rs.value = rv;
-
-    document.getElementById('tipOnlyCheckbox').checked   = !!p.tipOnly;
-    document.getElementById('tipCenterCheckbox').checked = !!p.tipAtCenter;
-    document.getElementById('showTrunkCheckbox').checked = !!p.showTrunk;
-    document.getElementById('growSmallCheckbox').checked = !!p.growSmallRects;
-  }
-
-  // [KISZERVEZVE pehely-core.js-be] buildCodeFromParams
-
-
-  function recomputeFromUI() {
-    const p = getParamsFromUI();
-    const code = buildCodeFromParams(p);
-    currentParams = p;
-    currentCode = code;
-    currentPolyData = computePolysForParams(p);
-    redraw();
-  }
-
-  function redraw() {
-    const canvas = document.getElementById('snowflakeCanvas');
-    const ctx = canvas.getContext('2d');
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#001633';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    if (!currentPolyData || !currentPolyData.polys || !currentPolyData.polys.length) {
-      return;
-    }
-
-    const { polys, minX, maxX, minY, maxY } = currentPolyData;
-    const width  = maxX - minX || 1;
-    const height = maxY - minY || 1;
-
-    const scale = 0.9 * Math.min(canvas.width / width, canvas.height / height);
-    const cx = (minX + maxX) / 2;
-    const cy = (minY + maxY) / 2;
-
-    const fillColor = '#bfe9ff';
-    const strokeColor = showOutline ? '#000000' : fillColor;
-
-    ctx.lineJoin = 'round';
-    ctx.lineCap = 'round';
-    ctx.lineWidth = 1.2;
-    ctx.fillStyle = fillColor;
-    ctx.strokeStyle = strokeColor;
-
-    for (const poly of polys) {
-      if (!poly || poly.length < 2) continue;
-      ctx.beginPath();
-      for (let i = 0; i < poly.length; i++) {
-        const x = poly[i][0];
-        const y = poly[i][1];
-        const sx = canvas.width / 2 + (x - cx) * scale;
-        const sy = canvas.height / 2 - (y - cy) * scale;
-        if (i === 0) ctx.moveTo(sx, sy);
-        else ctx.lineTo(sx, sy);
-      }
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-    }
-  }
-
-  // ====== Gombok funkciói ======
-  function randomizeParams() {
-    function randInt(min, max) {
-      return Math.round(min + Math.random() * (max - min));
-    }
-
-    // Szög (10–90)
-    const angle = randInt(10, 90);
-    document.getElementById('angleSlider').value = angle;
-    document.getElementById('angleInput').value  = angle;
-
-    // Vastagság
-    const ratio = randInt(8, 30);
-    document.getElementById('ratioSlider').value = ratio;
-    document.getElementById('ratioInput').value  = ratio;
-
-    // Köz
-    const spacing = randInt(15, 45);
-    document.getElementById('spacingSlider').value = spacing;
-    document.getElementById('spacingInput').value  = spacing;
-
-    // Méretcsökkenés
-    const reduction = randInt(20, 60);
-    document.getElementById('reductionSlider').value = reduction;
-    document.getElementById('reductionInput').value  = reduction;
-
-    // Végforma
-    const tipOptions = ['straight','tent','trap','hex','Y'];
-    const tv = tipOptions[randInt(0, tipOptions.length - 1)];
-    document.getElementById('tipStyleSelect').value = tv;
-
-    // Lefutás (most már a véletlen paraméterek része)
-    const runoffOptions = ['Oo.','.oO','ooo','oOo'];
-    document.getElementById('runoffSelect').value = runoffOptions[randInt(0, runoffOptions.length - 1)];
-
-    // Közép (random)
-    document.getElementById('tipCenterCheckbox').checked = (Math.random() < 0.5);
-
-    // A többi paraméter NEM változik
-    recomputeFromUI();
-  }
-
-  function toggleOutline() {
-    showOutline = !showOutline;
-    redraw();
-  }
-
-  async function exportDXFandJPG() {
-    if (!currentCode) {
-      recomputeFromUI();
-      if (!currentCode) return;
-    }
-
-    const paramsForExport = currentParams || getParamsFromUI();
-    const geom = computeContoursForCode(currentCode, paramsForExport);
-    if (!geom || !geom.contoursWithFlags || !geom.contoursWithFlags.length) {
-      alert('Nincs exportálható geometria (lehet, hogy minden eltűnt a min. vastagság szűrés miatt).');
-      return;
-    }
-
-    const baseName = `PEHELY-${currentCode}`;
-
-    // DXF generálása BLOKKAL (LWPOLYLINE; a pehely egy BLOCK, beszúrási pont: geometriai közép)
-    let dxf = '';
-    const NL = '\r\n';
-    function add(code, value) {
-      dxf += code + NL + value + NL;
-    }
-
-    // geometriai közép (bbox-közép) a teljes pehelyre
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    for (const c of geom.contoursWithFlags) {
-      const unique = c.points.slice(0, c.points.length - 1);
-      for (const [x, y] of unique) {
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
-      }
-    }
-    const cx = (minX + maxX) / 2;
-    const cy = (minY + maxY) / 2;
-
-    const blockName = PehelyCore.blockNameFromCode(currentCode);
-
-    add(0, 'SECTION');
-    add(2, 'HEADER');
-    add(0, 'ENDSEC');
-
-    // BLOCKS szekció: a geometriát a (0,0) köré központosítjuk, így az INSERT pont a geometriai közép
-    add(0, 'SECTION');
-    add(2, 'BLOCKS');
-
-    add(0, 'BLOCK');
-    add(8, '0');
-    add(2, blockName);
-    add(70, 0);
-    add(10, 0); add(20, 0); add(30, 0);
-    add(3, blockName);
-    add(1, '');
-
-    for (const c of geom.contoursWithFlags) {
-      const unique = c.points.slice(0, c.points.length - 1);
-      if (unique.length < 3) continue;
-
-      add(0, 'LWPOLYLINE');
-      add(8, '0');
-      add(62, c.isOuter ? 7 : 5);
-      add(90, unique.length);
-      add(70, 1); // zárt
-
-      for (const [x, y] of unique) {
-        add(10, (x - cx).toFixed(4));
-        add(20, (y - cy).toFixed(4));
-      }
-    }
-
-    add(0, 'ENDBLK');
-    add(0, 'ENDSEC');
-
-    // ENTITIES: a blokk beszúrása az origóba
-    add(0, 'SECTION');
-    add(2, 'ENTITIES');
-
-    add(0, 'INSERT');
-    add(8, '0');
-    add(2, blockName);
-    add(10, 0); add(20, 0); add(30, 0);
-    add(41, 1); add(42, 1); add(43, 1);
-    add(50, 0);
-
-    add(0, 'ENDSEC');
-    add(0, 'EOF');
-
-    // DXF mentése
-    await saveFileWithPickerOrDownload(baseName + '.dxf', 'application/dxf', dxf);
-
-// JPG generálása és mentése
-    const jpgBlob = await createJpegBlobForCode(currentCode, paramsForExport);
-    if (jpgBlob) {
-      await saveFileWithPickerOrDownload(baseName + '.jpg', 'image/jpeg', jpgBlob);
-    } else {
-      console.warn('Nem sikerült JPG-t generálni.');
-    }
-
-    alert('DXF és JPG mentése kész (ahol engedélyezve volt).');
-  }
-
-  async function loadFromJPG() {
-    if (!window.showOpenFilePicker) {
-      alert('A betöltéshez szükséges File System Access API nem érhető el ebben a böngészőben.');
-      return;
-    }
-    try {
-      const [handle] = await window.showOpenFilePicker({
-        types: [{
-          description: 'Hópelyhes JPG',
-          accept: { 'image/jpeg': ['.jpg', '.jpeg'] }
-        }]
-      });
-      const file = await handle.getFile();
-      const arrayBuffer = await file.arrayBuffer();
-      const code = parseCodeFromJpegArrayBuffer(arrayBuffer);
-      if (!code) {
-        alert('A kiválasztott JPG nem tartalmaz PEHELY-kódot.');
-        return;
-      }
-
-      const params = paramsFromCode(code);
-      applyParamsToUI(params);
-      currentCode = code;
-      currentParams = getParamsFromUI(); // runoff is UI-only
-      currentPolyData = computePolysForParams(currentParams);
-      redraw();
-    } catch (e) {
-      console.warn('Betöltés megszakítva vagy hiba:', e);
-    }
-  }
-
-  function gotoHavazo() {
-    window.location.href = 'havazo.html';
-  }
-
-  // ====== Init ======
-  window.addEventListener('load', () => {
-    // Szinkron párok
-    syncInputPair('angleSlider',    'angleInput',    recomputeFromUI);
-    syncInputPair('ratioSlider',    'ratioInput',    recomputeFromUI);
-    syncInputPair('spacingSlider',  'spacingInput',  recomputeFromUI);
-    syncInputPair('reductionSlider','reductionInput',recomputeFromUI);
-    syncInputPair('tipScaleSlider', 'tipScaleInput', recomputeFromUI);
-    syncInputPair('armsSlider',     'armsInput',     recomputeFromUI);
-    syncInputPair('minRectSlider',  'minRectInput',  recomputeFromUI);
-
-    document.getElementById('growSmallCheckbox')
-      .addEventListener('change', recomputeFromUI);
-    document.getElementById('tipStyleSelect')
-      .addEventListener('change', recomputeFromUI);
-    document.getElementById('runoffSelect')
-      .addEventListener('change', recomputeFromUI);
-    document.getElementById('tipOnlyCheckbox')
-      .addEventListener('change', recomputeFromUI);
-    document.getElementById('tipCenterCheckbox')
-      .addEventListener('change', recomputeFromUI);
-    document.getElementById('showTrunkCheckbox')
-      .addEventListener('change', recomputeFromUI);
-
-    document.getElementById('randomBtn')
-      .addEventListener('click', randomizeParams);
-    document.getElementById('toggleOutlineBtn')
-      .addEventListener('click', toggleOutline);
-    document.getElementById('saveBtn')
-      .addEventListener('click', exportDXFandJPG);
-    document.getElementById('loadFromJpgBtn')
-      .addEventListener('click', loadFromJPG);
-    document.getElementById('gotoHavazoBtn')
-      .addEventListener('click', gotoHavazo);
-
-    // Alapértelmezett paraméterek: 60-15-50-50-0S-1.00-N-Y-Y-6-3.0-Y
-    recomputeFromUI();
-  });
-</script>
+    // Indulás hash alapján
+    const initial = (location.hash || '').toLowerCase();
+    if (initial.includes('havazo')) setTab('havazo');
+    else setTab('pehely');
+  </script>
 </body>
 </html>
