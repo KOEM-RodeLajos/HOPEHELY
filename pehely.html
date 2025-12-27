@@ -2,7 +2,7 @@
 <html lang="hu">
 <head>
   <meta charset="UTF-8">
-  <title>Rodé Lajos - Hópehely generátor v63</title>
+  <title>Rodé Lajos - Hópehely generátor v71</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     * {
@@ -212,7 +212,7 @@
 <div class="page">
   <h1>
     Rodé Lajos - Hópehely generátor
-    <span id="appVersion" class="version">v63</span>
+    <span id="appVersion" class="version">v71</span>
   </h1>
 
   <div class="container">
@@ -273,6 +273,7 @@
               <option value=".oO">.oO</option>
               <option value="ooo">ooo</option>
               <option value="oOo">oOo</option>
+              <option value="OoO">OoO</option>
             </select>
           </div>
         </div>
@@ -363,7 +364,7 @@
   // ====== PehelyCore (közös algoritmus modul) ======
   const PC = window.PehelyCore;
   if (!PC) {
-    alert('Hiányzik a PehelyCore (pehely-core.js). Tedd a HTML-ek mellé ugyanabba a mappába. Ha csak verziószámos (pl. pehely-core_v63.js) van, nevezd át pehely-core.js-re.');
+    alert('Hiányzik a PehelyCore (pehely-core.js). Tedd a HTML-ek mellé ugyanabba a mappába. Ha csak verziószámos (pl. pehely-core_v71.js) van, nevezd át pehely-core.js-re.');
     throw new Error('PehelyCore hiányzik');
   }
   const {
@@ -739,7 +740,7 @@
     document.getElementById('tipStyleSelect').value = tv;
 
     // Lefutás (most már a véletlen paraméterek része)
-    const runoffOptions = ['Oo.','.oO','ooo','oOo'];
+    const runoffOptions = ['Oo.','.oO','ooo','oOo','OoO'];
     document.getElementById('runoffSelect').value = runoffOptions[randInt(0, runoffOptions.length - 1)];
 
     // Közép (random)
@@ -792,8 +793,51 @@
 
     const blockName = PehelyCore.blockNameFromCode(currentCode);
 
+    const hole = PehelyCore.computeHangingHole(geom.contoursWithFlags, paramsForExport.minRectMm);
+
     add(0, 'SECTION');
     add(2, 'HEADER');
+    add(0, 'ENDSEC');
+
+    // ===== TABLES: LAYER (Furat) =====
+    add(0, 'SECTION');
+    add(2, 'TABLES');
+
+    add(0, 'TABLE');
+    add(2, 'LAYER');
+    add(70, 5);
+
+    add(0, 'LAYER');
+    add(2, '0');
+    add(70, 0);
+    add(62, 7);
+    add(6, 'CONTINUOUS');
+
+    add(0, 'LAYER');
+    add(2, 'Kulso_kontur');
+    add(70, 0);
+    add(62, 7);
+    add(6, 'CONTINUOUS');
+
+    add(0, 'LAYER');
+    add(2, 'Belso_kontur');
+    add(70, 0);
+    add(62, 5);
+    add(6, 'CONTINUOUS');
+
+    add(0, 'LAYER');
+    add(2, 'Furat');
+    add(70, 0);
+    add(62, 1);
+    add(6, 'CONTINUOUS');
+
+    add(0, 'LAYER');
+    add(2, 'Keret');
+    add(70, 0);
+    add(62, 3);
+    add(6, 'CONTINUOUS');
+
+    add(0, 'ENDTAB');
     add(0, 'ENDSEC');
 
     // BLOCKS szekció: a geometriát a (0,0) köré központosítjuk, így az INSERT pont a geometriai közép
@@ -813,7 +857,7 @@
       if (unique.length < 3) continue;
 
       add(0, 'LWPOLYLINE');
-      add(8, '0');
+      add(8, c.isOuter ? 'Kulso_kontur' : 'Belso_kontur');
       add(62, c.isOuter ? 7 : 5);
       add(90, unique.length);
       add(70, 1); // zárt
@@ -823,6 +867,16 @@
         add(20, (y - cy).toFixed(4));
       }
     }
+
+    
+    // Furat (kör) a hópehely blokk részeként
+    // Mindig kirajzoljuk (ha nem található hely, a core felülre teszi a kontúron kívül)
+    add(0, 'CIRCLE');
+    add(8, 'Furat');
+    add(10, (hole.x - cx).toFixed(4));
+    add(20, (hole.y - cy).toFixed(4));
+    add(30, 0);
+    add(40, Number(hole.radius).toFixed(4));
 
     add(0, 'ENDBLK');
     add(0, 'ENDSEC');
@@ -950,7 +1004,7 @@ async function loadFromJPG() {
   window.addEventListener('load', () => {
     // Verzió (kívül-belül egységesen)
     const vEl = document.getElementById('appVersion');
-    const v = (PC && PC.VERSION) ? PC.VERSION : 'v63';
+    const v = (PC && PC.VERSION) ? PC.VERSION : 'v71';
     if (vEl) vEl.textContent = v;
     document.title = 'Rodé Lajos - Hópehely generátor ' + v;
 

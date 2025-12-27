@@ -1,5 +1,5 @@
 /* ============================================================
- * PehelyCore v63
+ * PehelyCore v71
  * Közös, DOM-független (offline-barát) algoritmusok a
  *   - Hópehely Generátor
  *   - HAVAZO
@@ -19,7 +19,7 @@
   const PehelyCore = {};
 
   // Verziók / konstansok
-  PehelyCore.VERSION = 'v63';
+  PehelyCore.VERSION = 'v71';
   const DXF_TARGET_SIZE = 100.0; // mm – a modell max kiterjedése export előtt
   PehelyCore.DXF_TARGET_SIZE = DXF_TARGET_SIZE;
 
@@ -122,6 +122,7 @@ function paramsFromCode(codeString) {
         case 'PO': return '.oO';
         case 'NU': return 'ooo';
         case 'VA': return 'oOo';
+        case 'VB': return 'OoO';
         case 'NE':
         default:   return 'Oo.';
       }
@@ -161,7 +162,8 @@ function buildCodeFromParams(p) {
         case '.oO': return 'PO';
         case 'ooo': return 'NU';
         case 'oOo': return 'VA';
-        case 'Oo.':
+        case 'OoO': return 'VB';
+        case 'Oo.': return 'NE';
         default:    return 'NE';
       }
     })(p.runoff || 'Oo.');
@@ -206,6 +208,16 @@ function buildSingleTreeSegments(params) {
         const d = Math.abs(idx - peak);
         return baseLen * Math.pow(shrink, d);
       }
+
+      if (runoffMode === 'OoO') {
+        // oOo "fordítva": középen a legkisebb, befelé és kifelé növekszik.
+        // Edge-case-ek: ugyanaz a középválasztás, mint oOo-nál (párosnál a belsőbb középső).
+        const peak = Math.floor((count + 1) / 2);
+        const d = Math.abs(idx - peak);
+        const maxD = Math.max(peak - 1, count - peak);
+        return baseLen * Math.pow(shrink, (maxD - d));
+      }
+
       // 'Oo.' (alapértelmezett)
       return baseLen * Math.pow(shrink, (idx - 1));
     }
@@ -1129,6 +1141,186 @@ function computeContoursForCode(codeString) {
 
   // Exports
   PehelyCore.pointInPolygon = pointInPolygon;
+
+  // ============================================================
+  //  Felfüggesztő furat helyének számítása (DXF exporthoz) – v67
+  //  - Próbakör átmérő = max(minRectMm, 3) - 0.1
+  //  - Próbakör a középtengelyen (bbox-közép X) fentről lefelé halad
+  //  - Első pozíció, ahol a próbakör teljes terjedelmével a külső kontúron belül van: kezdőpont
+  //  - Innen még max 8 mm-t megy lefelé, amíg kontúrt nem ér (külső vagy belső)
+  //  - A furat a kapott szakasz közepén van, átmérője 1.6 mm (r=0.8), "Furat" layer
+  //  - Ha nem található hely, a furat a pehely fölé kerül (kézi korrekcióhoz)
+  // ============================================================
+
+  function _polyArea(poly) {
+    let a = 0;
+    for (let i = 0, n = poly.length; i < n; i++) {
+      const [x1, y1] = poly[i];
+      const [x2, y2] = poly[(i + 1) % n];
+      a += x1 * y2 - x2 * y1;
+    }
+    return a * 0.5;
+  }
+
+  function _pointInPoly(px, py, poly) {
+    // Ray casting
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const xi = poly[i][0], yi = poly[i][1];
+      const xj = poly[j][0], yj = poly[j][1];
+      const intersect = ((yi > py) !== (yj > py)) &&
+                        (px < (xj - xi) * (py - yi) / ((yj - yi) || 1e-12) + xi);
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  }
+
+  function _distPointToSegment(px, py, ax, ay, bx, by) {
+    const abx = bx - ax, aby = by - ay;
+    const apx = px - ax, apy = py - ay;
+    const ab2 = abx * abx + aby * aby;
+    let t = 0;
+    if (ab2 > 1e-12) t = (apx * abx + apy * aby) / ab2;
+    if (t < 0) t = 0;
+    if (t > 1) t = 1;
+    const cx = ax + t * abx;
+    const cy = ay + t * aby;
+    const dx = px - cx, dy = py - cy;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  function _segmentsFromPoly(poly) {
+    const segs = [];
+    for (let i = 0; i < poly.length; i++) {
+      const [ax, ay] = poly[i];
+      const [bx, by] = poly[(i + 1) % poly.length];
+      segs.push([ax, ay, bx, by]);
+    }
+    return segs;
+  }
+
+  function _circleClear(px, py, r, outerPoly, innerPolys, allSegs) {
+    if (!_pointInPoly(px, py, outerPoly)) return false;
+    for (const h of innerPolys) {
+      if (_pointInPoly(px, py, h)) return false;
+    }
+    for (const s of allSegs) {
+      const d = _distPointToSegment(px, py, s[0], s[1], s[2], s[3]);
+      if (d < r) return false;
+    }
+    return true;
+  }
+
+  function computeHangingHole(contoursWithFlags, minRectMm) {
+    const rHole = 0.8; // 1.6 mm átmérő
+    const minTh = Math.max(Number(minRectMm) || 0, 3);
+    const testDia = Math.max(0.1, minTh - 0.1);
+    const rTest = testDia * 0.5;
+
+    // BBOX (minden kontúr alapján)
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const c of contoursWithFlags || []) {
+      const pts = (c && c.points) ? c.points : null;
+      if (!pts || pts.length < 4) continue;
+      const unique = pts.slice(0, pts.length - 1);
+      for (const p of unique) {
+        const x = p[0], y = p[1];
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+    if (!Number.isFinite(minX)) {
+      // Nincs geometria – fallback
+      return { ok: false, x: 0, y: 10, radius: rHole, testDiameter: testDia };
+    }
+
+    const axisX = (minX + maxX) * 0.5;
+
+    // Külső kontúr kiválasztása: legnagyobb területű isOuter
+    let outerPoly = null;
+    let outerAreaAbs = -Infinity;
+    const innerPolys = [];
+
+    for (const c of contoursWithFlags || []) {
+      const pts = (c && c.points) ? c.points : null;
+      if (!pts || pts.length < 4) continue;
+      const poly = pts.slice(0, pts.length - 1);
+      if (poly.length < 3) continue;
+      const areaAbs = Math.abs(_polyArea(poly));
+      if (c.isOuter) {
+        if (areaAbs > outerAreaAbs) {
+          outerAreaAbs = areaAbs;
+          outerPoly = poly;
+        }
+      } else {
+        innerPolys.push(poly);
+      }
+    }
+
+    // Ha valamiért nincs isOuter, válasszuk a legnagyobb területű kontúrt külsőnek.
+    if (!outerPoly) {
+      for (const c of contoursWithFlags || []) {
+        const pts = (c && c.points) ? c.points : null;
+        if (!pts || pts.length < 4) continue;
+        const poly = pts.slice(0, pts.length - 1);
+        if (poly.length < 3) continue;
+        const areaAbs = Math.abs(_polyArea(poly));
+        if (areaAbs > outerAreaAbs) {
+          outerAreaAbs = areaAbs;
+          outerPoly = poly;
+        }
+      }
+      // A többit kezeljük belsőnek (ha van)
+      innerPolys.length = 0;
+      for (const c of contoursWithFlags || []) {
+        const pts = (c && c.points) ? c.points : null;
+        if (!pts || pts.length < 4) continue;
+        const poly = pts.slice(0, pts.length - 1);
+        if (poly.length < 3) continue;
+        if (poly !== outerPoly) innerPolys.push(poly);
+      }
+    }
+
+    if (!outerPoly) {
+      return { ok: false, x: axisX, y: maxY + 10, radius: rHole, testDiameter: testDia };
+    }
+
+    const allSegs = _segmentsFromPoly(outerPoly);
+    for (const h of innerPolys) {
+      allSegs.push(..._segmentsFromPoly(h));
+    }
+
+    const step = 0.1; // mm
+    const yScanStart = maxY + rTest + 0.01;
+    const yScanMin   = minY - rTest - 0.01;
+
+    let yStart = null;
+    for (let y = yScanStart; y >= yScanMin; y -= step) {
+      if (_circleClear(axisX, y, rTest, outerPoly, innerPolys, allSegs)) {
+        yStart = y;
+        break;
+      }
+    }
+
+    if (yStart === null) {
+      // Nem találtunk helyet – felülre, kontúron kívülre
+      return { ok: false, x: axisX, y: maxY + 10, radius: rHole, testDiameter: testDia };
+    }
+
+    let yEnd = yStart;
+    const yTarget = yStart - 8.0; // max 8 mm
+    for (let y = yStart - step; y >= yTarget - 1e-9; y -= step) {
+      if (_circleClear(axisX, y, rTest, outerPoly, innerPolys, allSegs)) yEnd = y;
+      else break;
+    }
+
+    const yHole = (yStart + yEnd) * 0.5;
+    return { ok: true, x: axisX, y: yHole, radius: rHole, testDiameter: testDia, yStart, yEnd };
+  }
+
+
   PehelyCore.scalePolygon = scalePolygon;
   PehelyCore.paramsFromCode = paramsFromCode;
   PehelyCore.buildCodeFromParams = buildCodeFromParams;
@@ -1142,6 +1334,7 @@ function computeContoursForCode(codeString) {
   PehelyCore.computePolysForParams = computePolysForParams;
   PehelyCore.computePolysForCode = computePolysForCode;
   PehelyCore.buildLaserContoursExact = buildLaserContoursExact;
+  PehelyCore.computeHangingHole = computeHangingHole;
   PehelyCore.computeContoursForParams = computeContoursForParams;
   PehelyCore.computeContoursForCode = computeContoursForCode;
   PehelyCore.addJpegCommentToArrayBuffer = addJpegCommentToArrayBuffer;
