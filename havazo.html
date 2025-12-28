@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Rodé Lajos - HAVAZO v71</title>
+  <title>Rodé Lajos - HAVAZO v75</title>
   <style>
     * {
       box-sizing: border-box;
@@ -252,6 +252,7 @@
       border-radius: 8px;
     }
     #previewCode {
+      display: none;
       font-size: 0.95rem;
       letter-spacing: 0.04em;
       text-align: center;
@@ -285,7 +286,7 @@
 </head>
 <body>
 <div class="page">
-  <h1>Rodé Lajos - HAVAZO <span id="appVersion" class="version">v71</span></h1>
+  <h1>Rodé Lajos - HAVAZO <span id="appVersion" class="version">v75</span></h1>
 
   <div class="top-bar">
     <div class="folder-info">
@@ -638,7 +639,19 @@
   function openPreviewForItem(item) {
     if (!item || !item.imgURL) return;
     previewImage.src = item.imgURL;
-    previewCodeEl.textContent = 'PEHELY-' + item.code;
+
+    // A felugróban csak a kód maradjon: ha több sor van és valamelyik sorban szerepel a "PEHELY" szó, azt a sort kihagyjuk.
+    const raw = (item && item.code != null) ? String(item.code) : '';
+    const lines = raw.split(/\r?\n/);
+    const filtered = lines.filter(l => !/\bPEHELY\b/i.test(l));
+    let display = filtered.length ? filtered.join('\n') : raw;
+
+    // Fallback: ha egyetlen sor volt "PEHELY-" előtaggal, akkor csak az előtagot vágjuk le.
+    if (!display.trim() && raw) {
+      display = raw.replace(/^\s*PEHELY-?/i, '').trim();
+    }
+    // v75: a kód csak a képbe égetve jelenik meg (previewCode rejtve)
+    previewCodeEl.textContent = '';
     previewOverlay.classList.add('active');
   }
 
@@ -1671,7 +1684,7 @@ const now = new Date();
   window.addEventListener('load', () => {
     // Verzió (kívül-belül egységesen)
     const vEl = document.getElementById('appVersion');
-    const v = (PC && PC.VERSION) ? PC.VERSION : 'v71';
+    const v = (PC && PC.VERSION) ? PC.VERSION : 'v75';
     if (vEl) vEl.textContent = v;
     document.title = 'Rodé Lajos - HAVAZO ' + v;
 

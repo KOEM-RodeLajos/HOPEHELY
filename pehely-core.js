@@ -1,5 +1,5 @@
 /* ============================================================
- * PehelyCore v71
+ * PehelyCore v75
  * Közös, DOM-független (offline-barát) algoritmusok a
  *   - Hópehely Generátor
  *   - HAVAZO
@@ -19,7 +19,7 @@
   const PehelyCore = {};
 
   // Verziók / konstansok
-  PehelyCore.VERSION = 'v71';
+  PehelyCore.VERSION = 'v75';
   const DXF_TARGET_SIZE = 100.0; // mm – a modell max kiterjedése export előtt
   PehelyCore.DXF_TARGET_SIZE = DXF_TARGET_SIZE;
 

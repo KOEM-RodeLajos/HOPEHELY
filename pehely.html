@@ -2,7 +2,7 @@
 <html lang="hu">
 <head>
   <meta charset="UTF-8">
-  <title>Rodé Lajos - Hópehely generátor v71</title>
+  <title>Rodé Lajos - Hópehely generátor v75</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     * {
@@ -49,7 +49,7 @@
     }
     .canvas-container {
       flex: 1;
-      background: #001633;
+      background: #3b1f16;
       border-radius: 8px;
       padding: 0.5rem;
       box-shadow: 0 2px 6px rgba(0,0,0,0.08);
@@ -60,7 +60,7 @@
     }
     canvas {
       border-radius: 8px;
-      background: #001633;
+      background: #3b1f16;
       box-shadow: inset 0 0 6px rgba(0,0,0,0.4);
       display: block;
       width: 100%;
@@ -212,7 +212,7 @@
 <div class="page">
   <h1>
     Rodé Lajos - Hópehely generátor
-    <span id="appVersion" class="version">v71</span>
+    <span id="appVersion" class="version">v75</span>
   </h1>
 
   <div class="container">
@@ -247,8 +247,8 @@
       <div class="control-group">
         <label for="reductionSlider">Méretcsökkenés (%)</label>
         <div class="control-row">
-          <input id="reductionSlider" type="range" min="0" max="70" step="1" value="50">
-          <input id="reductionInput" type="number" min="0" max="70" step="1" value="50">
+          <input id="reductionSlider" type="range" min="0" max="100" step="1" value="50">
+          <input id="reductionInput" type="number" min="0" max="100" step="1" value="50">
         </div>
       </div>
 
@@ -364,7 +364,7 @@
   // ====== PehelyCore (közös algoritmus modul) ======
   const PC = window.PehelyCore;
   if (!PC) {
-    alert('Hiányzik a PehelyCore (pehely-core.js). Tedd a HTML-ek mellé ugyanabba a mappába. Ha csak verziószámos (pl. pehely-core_v71.js) van, nevezd át pehely-core.js-re.');
+    alert('Hiányzik a PehelyCore (pehely-core.js). Tedd a HTML-ek mellé ugyanabba a mappába. Ha csak verziószámos (pl. pehely-core_v75.js) van, nevezd át pehely-core.js-re.');
     throw new Error('PehelyCore hiányzik');
   }
   const {
@@ -556,6 +556,8 @@
   let currentParams = null;
   let showOutline = false; // alapból kontúr kikapcsolva
 
+  let PEHELY_STYLE = 2; // 1=eredeti, 2=pszeudo-3D fa nézet (csak generátor canvas)
+
   function syncInputPair(sliderId, numberId, onChange) {
     const slider = document.getElementById(sliderId);
     const input  = document.getElementById(numberId);
@@ -666,9 +668,19 @@
     const canvas = document.getElementById('snowflakeCanvas');
     const ctx = canvas.getContext('2d');
 
+    // Háttér
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#001633';
+    const bgColor = (PEHELY_STYLE === 2) ? '#3b1f16' : '#001633';
+    ctx.fillStyle = bgColor;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // A canvas körüli keret (container) színe mindig egyezzen a háttérrel
+    try {
+      const cc = canvas.closest('.canvas-container');
+      if (cc) cc.style.background = bgColor;
+      canvas.style.background = bgColor;
+    } catch (e) { /* no-op */ }
+
 
     if (!currentPolyData || !currentPolyData.polys || !currentPolyData.polys.length) {
       return;
@@ -682,29 +694,68 @@
     const cx = (minX + maxX) / 2;
     const cy = (minY + maxY) / 2;
 
-    const fillColor = '#bfe9ff';
-    const strokeColor = showOutline ? '#000000' : fillColor;
-
     ctx.lineJoin = 'round';
     ctx.lineCap = 'round';
     ctx.lineWidth = 1.2;
-    ctx.fillStyle = fillColor;
-    ctx.strokeStyle = strokeColor;
 
-    for (const poly of polys) {
-      if (!poly || poly.length < 2) continue;
+    function drawPoly(poly, ox, oy, fillStyle, strokeStyle) {
+      if (!poly || poly.length < 2) return;
       ctx.beginPath();
       for (let i = 0; i < poly.length; i++) {
-        const x = poly[i][0];
-        const y = poly[i][1];
+        const x = poly[i][0] + (ox || 0);
+        const y = poly[i][1] + (oy || 0);
         const sx = canvas.width / 2 + (x - cx) * scale;
         const sy = canvas.height / 2 - (y - cy) * scale;
         if (i === 0) ctx.moveTo(sx, sy);
         else ctx.lineTo(sx, sy);
       }
       ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
+      if (fillStyle) {
+        ctx.fillStyle = fillStyle;
+        ctx.fill();
+      }
+      if (strokeStyle) {
+        ctx.strokeStyle = strokeStyle;
+        ctx.stroke();
+      }
+    }
+
+    // ====== Stílusok ======
+    if (PEHELY_STYLE === 2) {
+      // 2-es stílus: pszeudo-3D "extrude" – csak canvas előnézet
+      const faceColor = '#e7d3a8'; // világos, nyers fa (fenyő jelleg)
+      const depthColor = '#000000'; // "vastagság" fekete
+      const strokeColor = showOutline ? '#000000' : faceColor;
+
+      // Eltolás vektor: 3 mm, 45° (képernyőn jobbra-lefelé)
+      const d = 3.0;
+      const dx = d * Math.SQRT1_2;
+      const dy = -d * Math.SQRT1_2;
+
+      const steps = 10;
+
+      // Vastagság (hátsó rétegek) – először a legtávolabbi
+      for (let s = steps; s >= 1; s--) {
+        const t = s / steps;
+        const ox = dx * t;
+        const oy = dy * t;
+        for (const poly of polys) {
+          drawPoly(poly, ox, oy, depthColor, null);
+        }
+      }
+
+      // Előlap
+      for (const poly of polys) {
+        drawPoly(poly, 0, 0, faceColor, strokeColor);
+      }
+      return;
+    }
+
+    // 1-es stílus: eredeti nézet
+    const fillColor = '#bfe9ff';
+    const strokeColor = showOutline ? '#000000' : fillColor;
+    for (const poly of polys) {
+      drawPoly(poly, 0, 0, fillColor, strokeColor);
     }
   }
 
@@ -1004,11 +1055,29 @@ async function loadFromJPG() {
   window.addEventListener('load', () => {
     // Verzió (kívül-belül egységesen)
     const vEl = document.getElementById('appVersion');
-    const v = (PC && PC.VERSION) ? PC.VERSION : 'v71';
+    const v = (PC && PC.VERSION) ? PC.VERSION : 'v75';
     if (vEl) vEl.textContent = v;
     document.title = 'Rodé Lajos - Hópehely generátor ' + v;
 
-    // Szinkron párok
+    
+    // Stílus váltás: a hópehelyre kattintva / tappelve léptetjük a stílusokat
+    const _styleCanvas = document.getElementById('snowflakeCanvas');
+    if (_styleCanvas) {
+      try { _styleCanvas.style.touchAction = 'manipulation'; } catch (e) { /* no-op */ }
+      const handler = (ev) => {
+        if (!currentPolyData) return;
+        PEHELY_STYLE = (PEHELY_STYLE % 2) + 1;
+        redraw();
+        if (ev && ev.preventDefault) ev.preventDefault();
+      };
+      if (window.PointerEvent) {
+        _styleCanvas.addEventListener('pointerup', handler, { passive: false });
+      } else {
+        _styleCanvas.addEventListener('click', handler);
+      }
+    }
+
+// Szinkron párok
     syncInputPair('angleSlider',    'angleInput',    recomputeFromUI);
     syncInputPair('ratioSlider',    'ratioInput',    recomputeFromUI);
     syncInputPair('spacingSlider',  'spacingInput',  recomputeFromUI);
