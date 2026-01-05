@@ -2,7 +2,7 @@
 <html lang="hu">
 <head>
   <meta charset="UTF-8">
-  <title>Rodé Lajos - Hópehely generátor v75</title>
+  <title>Rodé Lajos - Hópehely generátor</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     * {
@@ -212,7 +212,7 @@
 <div class="page">
   <h1>
     Rodé Lajos - Hópehely generátor
-    <span id="appVersion" class="version">v75</span>
+    <span id="appVersion" class="version">v?</span>
   </h1>
 
   <div class="container">
@@ -223,8 +223,8 @@
       <div class="control-group">
         <label for="angleSlider">Szög (°)</label>
         <div class="control-row">
-          <input id="angleSlider" type="range" min="10" max="120" step="1" value="60">
-          <input id="angleInput" type="number" min="10" max="120" step="1" value="60">
+          <input id="angleSlider" type="range" min="0" max="180" step="1" value="60">
+          <input id="angleInput" type="number" min="0" max="180" step="1" value="60">
         </div>
       </div>
 
@@ -239,8 +239,8 @@
       <div class="control-group">
         <label for="spacingSlider">Köz (%)</label>
         <div class="control-row">
-          <input id="spacingSlider" type="range" min="10" max="50" step="1" value="50">
-          <input id="spacingInput" type="number" min="10" max="50" step="1" value="50">
+          <input id="spacingSlider" type="range" min="10" max="100" step="1" value="50">
+          <input id="spacingInput" type="number" min="10" max="100" step="1" value="50">
         </div>
       </div>
 
@@ -290,10 +290,10 @@
       <hr class="separator">
 
       <div class="control-group">
-        <label for="armsSlider">Karok száma</label>
+        <label for="trapezSlider">Trapezitás</label>
         <div class="control-row">
-          <input id="armsSlider" type="range" min="3" max="12" step="1" value="6">
-          <input id="armsInput" type="number" min="3" max="12" step="1" value="6">
+          <input id="trapezSlider" type="range" min="-5" max="5" step="0.1" value="0">
+          <input id="trapezInput" type="number" min="-5" max="5" step="0.1" value="0">
         </div>
       </div>
 
@@ -364,7 +364,7 @@
   // ====== PehelyCore (közös algoritmus modul) ======
   const PC = window.PehelyCore;
   if (!PC) {
-    alert('Hiányzik a PehelyCore (pehely-core.js). Tedd a HTML-ek mellé ugyanabba a mappába. Ha csak verziószámos (pl. pehely-core_v75.js) van, nevezd át pehely-core.js-re.');
+    alert('Hiányzik a PehelyCore (pehely-core.js). Tedd a HTML-ek mellé ugyanabba a mappába. Ha csak verziószámos (pl. pehely-core_v80.js) van, nevezd át pehely-core.js-re.');
     throw new Error('PehelyCore hiányzik');
   }
   const {
@@ -486,7 +486,7 @@
   }
 
   // ====== PEHELY geometria (ugyanaz a logika, mint a HAVAZO-ban) ======
-  const DXF_TARGET_SIZE = 100.0; // mm
+  const DXF_TARGET_SIZE = PC.DXF_TARGET_SIZE; // mm (core-ból)
   const geometryCache = new Map(); // code -> { contoursWithFlags }
 
   // [KISZERVEZVE pehely-core.js-be] paramsFromCode
@@ -556,7 +556,7 @@
   let currentParams = null;
   let showOutline = false; // alapból kontúr kikapcsolva
 
-  let PEHELY_STYLE = 2; // 1=eredeti, 2=pszeudo-3D fa nézet (csak generátor canvas)
+  let PEHELY_STYLE = 1; // 1=eredeti, 2=pszeudo-3D fa nézet (csak generátor canvas)
 
   function syncInputPair(sliderId, numberId, onChange) {
     const slider = document.getElementById(sliderId);
@@ -584,7 +584,7 @@
     const ratioVal    = parseFloat(document.getElementById('ratioSlider').value);
     const spacingVal  = parseFloat(document.getElementById('spacingSlider').value);
     const redVal      = parseFloat(document.getElementById('reductionSlider').value);
-    const armsVal     = parseInt(document.getElementById('armsSlider').value, 10);
+    const trapezVal   = parseFloat(document.getElementById('trapezSlider').value);
     const minRectVal  = parseFloat(document.getElementById('minRectSlider').value);
     const growSmall   = document.getElementById('growSmallCheckbox').checked;
     const tipScaleVal = parseFloat(document.getElementById('tipScaleSlider').value);
@@ -611,7 +611,8 @@
       tipOnly,
       tipAtCenter:       tipCenter,
       showTrunk,
-      armCount:          Number.isFinite(armsVal)    ? armsVal    : 6,
+      armCount:          6,
+      trapez:            Number.isFinite(trapezVal)  ? trapezVal  : 0,
       minRectMm:         Number.isFinite(minRectVal) ? minRectVal : 3.0,
       runoff:           runoffVal,
       growSmallRects:    growSmall
@@ -631,7 +632,7 @@
     setPair('spacingSlider',  'spacingInput',  p.spacingPercent);
     setPair('reductionSlider','reductionInput',p.reductionPercent);
     setPair('tipScaleSlider', 'tipScaleInput', p.tipScale);
-    setPair('armsSlider',     'armsInput',     p.armCount);
+    setPair('trapezSlider',   'trapezInput',   (Number.isFinite(p.trapez) ? p.trapez : 0));
     setPair('minRectSlider',  'minRectInput',  p.minRectMm);
 
     let tipVal = 'straight';
@@ -727,9 +728,9 @@
       const depthColor = '#000000'; // "vastagság" fekete
       const strokeColor = showOutline ? '#000000' : faceColor;
 
-      // Eltolás vektor: 3 mm, 45° (képernyőn jobbra-lefelé)
+      // Eltolás vektor: 3 mm, 45° (képernyőn balra-lefelé)
       const d = 3.0;
-      const dx = d * Math.SQRT1_2;
+      const dx = -d * Math.SQRT1_2;
       const dy = -d * Math.SQRT1_2;
 
       const steps = 10;
@@ -821,130 +822,8 @@
 
     const baseName = `PEHELY-${currentCode}`;
 
-    // DXF generálása BLOKKAL (LWPOLYLINE; a pehely egy BLOCK, beszúrási pont: geometriai közép)
-    let dxf = '';
-    const NL = '\r\n';
-    function add(code, value) {
-      dxf += code + NL + value + NL;
-    }
-
-    // geometriai közép (bbox-közép) a teljes pehelyre
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    for (const c of geom.contoursWithFlags) {
-      const unique = c.points.slice(0, c.points.length - 1);
-      for (const [x, y] of unique) {
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
-      }
-    }
-    const cx = (minX + maxX) / 2;
-    const cy = (minY + maxY) / 2;
-
-    const blockName = PehelyCore.blockNameFromCode(currentCode);
-
-    const hole = PehelyCore.computeHangingHole(geom.contoursWithFlags, paramsForExport.minRectMm);
-
-    add(0, 'SECTION');
-    add(2, 'HEADER');
-    add(0, 'ENDSEC');
-
-    // ===== TABLES: LAYER (Furat) =====
-    add(0, 'SECTION');
-    add(2, 'TABLES');
-
-    add(0, 'TABLE');
-    add(2, 'LAYER');
-    add(70, 5);
-
-    add(0, 'LAYER');
-    add(2, '0');
-    add(70, 0);
-    add(62, 7);
-    add(6, 'CONTINUOUS');
-
-    add(0, 'LAYER');
-    add(2, 'Kulso_kontur');
-    add(70, 0);
-    add(62, 7);
-    add(6, 'CONTINUOUS');
-
-    add(0, 'LAYER');
-    add(2, 'Belso_kontur');
-    add(70, 0);
-    add(62, 5);
-    add(6, 'CONTINUOUS');
-
-    add(0, 'LAYER');
-    add(2, 'Furat');
-    add(70, 0);
-    add(62, 1);
-    add(6, 'CONTINUOUS');
-
-    add(0, 'LAYER');
-    add(2, 'Keret');
-    add(70, 0);
-    add(62, 3);
-    add(6, 'CONTINUOUS');
-
-    add(0, 'ENDTAB');
-    add(0, 'ENDSEC');
-
-    // BLOCKS szekció: a geometriát a (0,0) köré központosítjuk, így az INSERT pont a geometriai közép
-    add(0, 'SECTION');
-    add(2, 'BLOCKS');
-
-    add(0, 'BLOCK');
-    add(8, '0');
-    add(2, blockName);
-    add(70, 0);
-    add(10, 0); add(20, 0); add(30, 0);
-    add(3, blockName);
-    add(1, '');
-
-    for (const c of geom.contoursWithFlags) {
-      const unique = c.points.slice(0, c.points.length - 1);
-      if (unique.length < 3) continue;
-
-      add(0, 'LWPOLYLINE');
-      add(8, c.isOuter ? 'Kulso_kontur' : 'Belso_kontur');
-      add(62, c.isOuter ? 7 : 5);
-      add(90, unique.length);
-      add(70, 1); // zárt
-
-      for (const [x, y] of unique) {
-        add(10, (x - cx).toFixed(4));
-        add(20, (y - cy).toFixed(4));
-      }
-    }
-
-    
-    // Furat (kör) a hópehely blokk részeként
-    // Mindig kirajzoljuk (ha nem található hely, a core felülre teszi a kontúron kívül)
-    add(0, 'CIRCLE');
-    add(8, 'Furat');
-    add(10, (hole.x - cx).toFixed(4));
-    add(20, (hole.y - cy).toFixed(4));
-    add(30, 0);
-    add(40, Number(hole.radius).toFixed(4));
-
-    add(0, 'ENDBLK');
-    add(0, 'ENDSEC');
-
-    // ENTITIES: a blokk beszúrása az origóba
-    add(0, 'SECTION');
-    add(2, 'ENTITIES');
-
-    add(0, 'INSERT');
-    add(8, '0');
-    add(2, blockName);
-    add(10, 0); add(20, 0); add(30, 0);
-    add(41, 1); add(42, 1); add(43, 1);
-    add(50, 0);
-
-    add(0, 'ENDSEC');
-    add(0, 'EOF');
+    // DXF generálása (egységesen a core-ban)
+    const dxf = PC.buildSingleFlakeDxf(currentCode, geom.contoursWithFlags, paramsForExport.minRectMm);
 
     // DXF mentése
     await saveFileWithPickerOrDownload(baseName + '.dxf', 'application/dxf', dxf);
@@ -1055,25 +934,54 @@ async function loadFromJPG() {
   window.addEventListener('load', () => {
     // Verzió (kívül-belül egységesen)
     const vEl = document.getElementById('appVersion');
-    const v = (PC && PC.VERSION) ? PC.VERSION : 'v75';
+    const v = (PC && PC.VERSION) ? PC.VERSION : 'v81.1';
     if (vEl) vEl.textContent = v;
     document.title = 'Rodé Lajos - Hópehely generátor ' + v;
 
     
-    // Stílus váltás: a hópehelyre kattintva / tappelve léptetjük a stílusokat
+    // Stílus váltás: dupla kattintással / dupla tappal léptetjük a stílusokat
     const _styleCanvas = document.getElementById('snowflakeCanvas');
     if (_styleCanvas) {
       try { _styleCanvas.style.touchAction = 'manipulation'; } catch (e) { /* no-op */ }
+
       const handler = (ev) => {
         if (!currentPolyData) return;
         PEHELY_STYLE = (PEHELY_STYLE % 2) + 1;
         redraw();
         if (ev && ev.preventDefault) ev.preventDefault();
       };
+
+      // Egér: dblclick. Touch: saját double-tap detektálás (mobilon megbízhatóbb).
+      _styleCanvas.addEventListener('dblclick', handler);
+
       if (window.PointerEvent) {
-        _styleCanvas.addEventListener('pointerup', handler, { passive: false });
-      } else {
-        _styleCanvas.addEventListener('click', handler);
+        let lastTapT = 0;
+        let lastTapX = 0;
+        let lastTapY = 0;
+        const DOUBLE_TAP_MS = 350;
+        const TAP_SLOP_PX = 25;
+
+        _styleCanvas.addEventListener('pointerup', (ev) => {
+          if (!ev || (ev.pointerType !== 'touch' && ev.pointerType !== 'pen')) return;
+
+          const now = (window.performance && performance.now) ? performance.now() : Date.now();
+          const x = ev.clientX || 0;
+          const y = ev.clientY || 0;
+
+          const dt = now - lastTapT;
+          const dx = x - lastTapX;
+          const dy = y - lastTapY;
+          const distOk = (dx * dx + dy * dy) <= (TAP_SLOP_PX * TAP_SLOP_PX);
+
+          if (lastTapT && dt > 0 && dt <= DOUBLE_TAP_MS && distOk) {
+            lastTapT = 0;
+            handler(ev);
+          } else {
+            lastTapT = now;
+            lastTapX = x;
+            lastTapY = y;
+          }
+        }, { passive: false });
       }
     }
 
@@ -1083,8 +991,8 @@ async function loadFromJPG() {
     syncInputPair('spacingSlider',  'spacingInput',  recomputeFromUI);
     syncInputPair('reductionSlider','reductionInput',recomputeFromUI);
     syncInputPair('tipScaleSlider', 'tipScaleInput', recomputeFromUI);
-    syncInputPair('armsSlider',     'armsInput',     recomputeFromUI);
-    syncInputPair('minRectSlider',  'minRectInput',  recomputeFromUI);
+    syncInputPair('trapezSlider',   'trapezInput',   recomputeFromUI);
+        syncInputPair('minRectSlider',  'minRectInput',  recomputeFromUI);
 
     document.getElementById('growSmallCheckbox')
       .addEventListener('change', recomputeFromUI);

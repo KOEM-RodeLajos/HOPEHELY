@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>HÓPEHELY – Host v75</title>
+  <title>HÓPEHELY – Host</title>
   <style>
     :root {
       --bar-h: 56px;
@@ -93,7 +93,7 @@
         <button id="tabPehely" class="tab" role="tab" aria-selected="true">Generátor</button>
         <button id="tabHavazo" class="tab" role="tab" aria-selected="false">Havazó</button>
       </div>
-      <div class="hint">v75 • ha a fülek között váltasz, nem felejt állapotot</div>
+      <div id="hostHint" class="hint">v?</div>
     </div>
 
     <div class="framewrap">
@@ -102,7 +102,21 @@
     </div>
   </div>
 
+  <script src="./pehely-core.js"></script>
   <script>
+    // Verzió központosítva a core-ban
+    (function() {
+      try {
+        const PC = window.PehelyCore;
+        const v = (PC && PC.VERSION) ? PC.VERSION : 'v81.1';
+        document.title = 'HÓPEHELY – Host ' + v;
+        const hint = document.getElementById('hostHint');
+        if (hint) hint.textContent = v;
+      } catch (e) {
+        // no-op
+      }
+    })();
+
     const tabPehely = document.getElementById('tabPehely');
     const tabHavazo = document.getElementById('tabHavazo');
     const framePehely = document.getElementById('framePehely');

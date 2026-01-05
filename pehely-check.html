@@ -1,0 +1,570 @@
+<!doctype html>
+<html lang="hu">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PEHELY ellenőrző / javító</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 16px; color: #111; }
+    h1 { margin: 0 0 6px 0; font-size: 20px; }
+    .sub { color:#555; margin: 0 0 14px 0; }
+    .row { display:flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 10px 0; }
+    button { padding: 8px 12px; border: 1px solid #bbb; background:#f5f5f5; border-radius: 8px; cursor: pointer; }
+    button.primary { background:#0b5; color:#fff; border-color:#0a4; }
+    button:disabled { opacity: .55; cursor: not-allowed; }
+    input[type="checkbox"] { transform: translateY(1px); }
+    .pill { display:inline-block; padding: 2px 8px; border-radius: 999px; border:1px solid #ddd; background:#fafafa; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+    .status { margin-top: 8px; color: #444; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { border-bottom: 1px solid #eee; padding: 8px 10px; vertical-align: top; }
+    th { text-align: left; position: sticky; top: 0; backdrop-filter: blur(6px); background: rgba(245,245,245,.85); z-index: 1; }
+    td.code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; word-break: break-all; }
+    img.thumb { width: 78px; height: 78px; object-fit: cover; border-radius: 8px; border: 1px solid #ddd; background:#fff; }
+    .ok { color:#0a6; }
+    .bad { color:#b00; }
+    .muted { color:#777; }
+  </style>
+  <script src="./pehely-core.js"></script>
+</head>
+<body>
+  <h1>PEHELY ellenőrző / javító</h1>
+  <p class="sub">
+    Beolvassa a kiválasztott mappában lévő összes JPG/JPEG fájlt, kiolvassa a beágyazott PEHELY-kódot,
+    és (ha kell) újraírja a fájlba az aktuális kódformátummal. A javítás közben minden régi, „PEHELY-” tartalmú komment törlésre kerül,
+    és csak az új kód marad.
+  </p>
+
+  <div class="row">
+    <button id="pickDirBtn" class="primary">Mappa kijelölése (írható)</button>
+    <input id="fallbackDirInput" type="file" webkitdirectory multiple style="display:none">
+    <button id="fallbackBtn">Mappa kijelölése (csak olvasás)</button>
+
+    <label style="display:flex;align-items:center;gap:8px;">
+      <input id="onlyProblemsCheckbox" type="checkbox">
+      csak problémás pelyhek
+    </label>
+
+    <label style="display:flex;align-items:center;gap:8px;">
+      <input id="renameFilesCheckbox" type="checkbox" checked>
+      fájlnevek frissítése a kód alapján
+    </label>
+
+    <button id="fixBtn" disabled>Javítás a mappában</button>
+    <span id="envPill" class="pill">…</span>
+  </div>
+
+  <div class="status" id="status">Nincs betöltött mappa.</div>
+
+  <table>
+    <thead>
+      <tr>
+        <th style="width:92px">Kép</th>
+        <th>Fájlnév</th>
+        <th style="width:80px">Verzió</th>
+        <th>PEHELY-kód</th>
+        <th>Kikövetkeztethető kód</th>
+        <th style="width:220px">Állapot</th>
+      </tr>
+    </thead>
+    <tbody id="tbody"></tbody>
+  </table>
+
+<script>
+(() => {
+  'use strict';
+
+  const PC = window.PehelyCore;
+  const tbody = document.getElementById('tbody');
+  const statusEl = document.getElementById('status');
+  const pickDirBtn = document.getElementById('pickDirBtn');
+  const fallbackBtn = document.getElementById('fallbackBtn');
+  const fallbackDirInput = document.getElementById('fallbackDirInput');
+  const fixBtn = document.getElementById('fixBtn');
+  const onlyProblemsCheckbox = document.getElementById('onlyProblemsCheckbox');
+  const renameFilesCheckbox = document.getElementById('renameFilesCheckbox');
+  const envPill = document.getElementById('envPill');
+
+  if (!PC) {
+    alert('Nem található a pehely-core.js (PehelyCore). Tedd a pehely-check.html mellé!');
+    return;
+  }
+
+  const CURRENT_TAG = (PC.CODE_FORMAT_TAG || 'V01');
+  envPill.textContent = `core: ${(PC.VERSION || '').toUpperCase()} | kód: ${CURRENT_TAG}`;
+
+  let usingFSAccess = false;
+  let dirHandle = null;
+  let items = [];
+
+  function escHtml(s) {
+    s = (s === undefined || s === null) ? "" : String(s);
+    return s.replace(/[&<>"']/g, (ch) => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","\x27":"&#39;"}[ch]));
+  }
+
+
+  function desiredFilenameForCode(code) {
+    if (!code) return null;
+    // A generátor/havazó is ezt a névkonvenciót használja.
+    return `PEHELY-${code}.jpg`;
+  }
+
+  function setStatus(msg) { statusEl.textContent = msg; }
+
+  function versionTagFromCode(code) {
+    const v = PC.getCodeFormatVersion(code);
+    return 'V' + String(v).padStart(2, '0');
+  }
+
+  function inferCodeFromFilename(name) {
+    const base = String(name || '');
+    // A kódban előfordulhat '.' (pl. 1.00), ezért csak a kiterjesztést vágjuk le.
+    const baseNoExt = base.replace(/\.(jpe?g)$/i, '').replace(/\.(png)$/i, '');
+    // 1) ha explicit PEHELY- van benne
+    const idx = baseNoExt.indexOf('PEHELY-');
+    if (idx !== -1) {
+      const tail = baseNoExt.substring(idx + 7);
+      const m = tail.match(/^[^\s]+/);
+      if (m && m[0]) return m[0];
+    }
+    // 2) új formátum: Vdd-...
+    const mV = baseNoExt.match(/(V\d\d-[0-9A-Za-z_.-]+)/i);
+    if (mV && mV[1]) return mV[1];
+    // 3) régi formátum: szám-szám-... (legalább 6 kötőjellel)
+    const mOld = baseNoExt.match(/(\d{1,3}(?:-\d{1,3}){5,}[^\s]*)/);
+    if (mOld && mOld[1]) return mOld[1];
+    return null;
+  }
+
+  function clearTable() {
+    for (const it of items) {
+      if (it && it.imgURL) URL.revokeObjectURL(it.imgURL);
+    }
+    items = [];
+    tbody.innerHTML = '';
+    updateFixButton();
+  }
+
+  function updateFixButton() {
+    const fixable = items.filter(it => it.canFix).length;
+    fixBtn.disabled = !usingFSAccess || fixable === 0;
+    fixBtn.textContent = (fixable > 0) ? `Javítás a mappában (${fixable})` : 'Javítás a mappában';
+  }
+
+  function refreshItemRow(it) {
+    if (!it) return;
+    const renameOn = !!renameFilesCheckbox.checked;
+
+    // Dinamikusan számoljuk újra, hogy mi számít "problémának".
+    const reasons = Array.isArray(it.baseProblemReasons) ? [...it.baseProblemReasons] : [];
+    if (it.lastFixError) reasons.push(`Javítás sikertelen: ${it.lastFixError}`);
+    const wantRename = renameOn && !!it.nameMismatch;
+    if (wantRename) reasons.push('A fájlnév nem az aktuális PEHELY-kódot tükrözi.');
+
+    it.isProblem = (reasons.length > 0);
+    it.canFix = usingFSAccess && !!it.handle && !!it.targetCode && it.isProblem && (!!it.needsCommentFix || wantRename);
+
+    if (!it.isProblem) {
+      if (!!it.nameMismatch && !renameOn) {
+        it.statusHtml = '<span class="ok">Rendben</span><div class="muted">A fájlnév eltér a kódtól (átnevezés kikapcsolva).</div>';
+      } else {
+        it.statusHtml = '<span class="ok">Rendben</span>';
+      }
+    } else {
+      const msg = reasons.map(s => `<div class=\"bad\">• ${escHtml(s)}</div>`).join('');
+      it.statusHtml = msg + (it.canFix ? `<div class="ok">Javítható.</div>` : `<div class="muted">Nem írható / nem javítható.</div>`);
+    }
+
+    if (it._cells) {
+      it._cells.tdVer.textContent = it.versionTag || '';
+      it._cells.tdCode.textContent = it.codeFound || '';
+      it._cells.tdInf.textContent = it.codeInferred || '';
+      it._cells.tdSt.innerHTML = it.statusHtml;
+      it._cells.tdName.textContent = it.fileName || '';
+    }
+  }
+
+  function refreshAllRows() {
+    for (const it of items) refreshItemRow(it);
+    updateFixButton();
+    applyProblemFilter();
+  }
+
+  function applyProblemFilter() {
+    const onlyProblems = !!onlyProblemsCheckbox.checked;
+    for (const it of items) {
+      if (!it || !it._tr) continue;
+      it._tr.style.display = (!onlyProblems || it.isProblem) ? '' : 'none';
+    }
+  }
+
+  onlyProblemsCheckbox.addEventListener('change', applyProblemFilter);
+
+  function addRow(it) {
+    const tr = document.createElement('tr');
+
+    const tdImg = document.createElement('td');
+    const img = document.createElement('img');
+    img.className = 'thumb';
+    img.src = it.imgURL;
+    img.alt = '';
+    tdImg.appendChild(img);
+
+    const tdName = document.createElement('td');
+    tdName.textContent = it.fileName;
+
+    const tdVer = document.createElement('td');
+    tdVer.className = 'code';
+    tdVer.textContent = it.versionTag || '';
+
+    const tdCode = document.createElement('td');
+    tdCode.className = 'code';
+    tdCode.textContent = it.codeFound || '';
+
+    const tdInf = document.createElement('td');
+    tdInf.className = 'code';
+    tdInf.textContent = it.codeInferred || '';
+
+    const tdSt = document.createElement('td');
+    tdSt.innerHTML = it.statusHtml;
+
+    tr.appendChild(tdImg);
+    tr.appendChild(tdName);
+    tr.appendChild(tdVer);
+    tr.appendChild(tdCode);
+    tr.appendChild(tdInf);
+    tr.appendChild(tdSt);
+
+    it._tr = tr;
+    it._cells = { tdName, tdVer, tdCode, tdInf, tdSt };
+    tbody.appendChild(tr);
+  }
+
+  async function analyzeJpegFile(file, handleOrNull) {
+    const it = {
+      fileName: file.name,
+      handle: handleOrNull,
+      imgURL: URL.createObjectURL(file),
+      codesInJpeg: [],
+      codeFound: null,
+      versionTag: '',
+      codeInferred: null,
+      targetCode: null,
+      desiredName: null,
+      nameMismatch: false,
+      baseProblemReasons: [],
+      needsCommentFix: false,
+      isProblem: false,
+      canFix: false,
+      statusHtml: '<span class=\"muted\">…</span>',
+      lastFixError: null
+    };
+
+    try {
+      const ab = await file.arrayBuffer();
+      const codes = PC.listPehelyCodesFromJpegArrayBuffer(ab);
+      it.codesInJpeg = codes;
+      const raw = (codes && codes.length) ? codes[codes.length - 1] : null;
+      it.codeFound = raw;
+
+      const inferred = inferCodeFromFilename(file.name);
+      it.codeInferred = inferred;
+
+      let target = null;
+      let problemReasons = [];
+
+      if (codes.length === 0) {
+        problemReasons.push('Nincs PEHELY-kód a JPG-ben.');
+      }
+      if (codes.length > 1) {
+        problemReasons.push(`Több PEHELY komment van (${codes.length} db) – tisztítás szükséges.`);
+      }
+
+      if (raw) {
+        try {
+          target = PC.upgradeCodeToCurrent(raw);
+          const vTag = versionTagFromCode(raw);
+          it.versionTag = vTag;
+          if (raw !== target) {
+            problemReasons.push('Régi / nem kánonikus kódformátum.');
+          }
+        } catch (e) {
+          problemReasons.push('A beágyazott kód nem értelmezhető.');
+          it.versionTag = versionTagFromCode(raw);
+        }
+      }
+
+      if (!target && inferred) {
+        try {
+          target = PC.upgradeCodeToCurrent(inferred);
+        } catch (e) {
+          // marad null
+        }
+      }
+
+      if (!it.versionTag) {
+        // ha nincs beágyazott kód, a kikövetkeztetett alapján mutassunk verziót (ha van)
+        if (target) it.versionTag = versionTagFromCode(target);
+      }
+
+      it.targetCode = target;
+
+      // Írás szükséges-e? (komment hiányzik / több van / nem kánonikus)
+      it.needsCommentFix = (codes.length !== 1) || (raw !== null && target !== null && raw !== target) || (raw === null && target !== null);
+
+      // Névkonvenció ellenőrzése (külön kezelt, opcionálisan probléma)
+      it.desiredName = desiredFilenameForCode(target);
+      it.nameMismatch = (!!it.desiredName && it.fileName !== it.desiredName);
+
+      if (!target) {
+        problemReasons.push('Nem lehet biztonságosan kikövetkeztetni / frissíteni a kódot.');
+      }
+
+      it.baseProblemReasons = problemReasons;
+
+      // A tényleges (szűrő- és fixelés szempontjából releváns) állapot dinamikus,
+      // mert a fájlnév-frissítés ki/bekapcsolható.
+      refreshItemRow(it);
+
+    } catch (e) {
+      it.isProblem = true;
+      it.canFix = false;
+      it.statusHtml = `<div class="bad">Hiba beolvasás közben: ${(e && e.message) ? e.message : String(e)}</div>`;
+    }
+
+    items.push(it);
+    addRow(it);
+    refreshItemRow(it);
+  }
+
+  async function ensureWritePermission(handle) {
+    if (!handle) return false;
+    if (!handle.queryPermission) return false;
+    let perm = await handle.queryPermission({ mode: 'readwrite' });
+    if (perm === 'granted') return true;
+    perm = await handle.requestPermission({ mode: 'readwrite' });
+    return perm === 'granted';
+  }
+
+  async function scanDirectoryHandle(dir) {
+    clearTable();
+    usingFSAccess = true;
+    dirHandle = dir;
+
+    // Átnevezés csak akkor lehetséges, ha removeEntry elérhető.
+    const canRename = !!(dir && typeof dir.removeEntry === 'function');
+    renameFilesCheckbox.disabled = !canRename;
+    if (!canRename) renameFilesCheckbox.checked = false;
+
+    setStatus('Mappa beolvasása…');
+    let count = 0;
+
+    for await (const entry of dir.values()) {
+      if (!entry || entry.kind !== 'file') continue;
+      const nm = String(entry.name || '').toLowerCase();
+      if (!(nm.endsWith('.jpg') || nm.endsWith('.jpeg'))) continue;
+      const file = await entry.getFile();
+      await analyzeJpegFile(file, entry);
+      count++;
+      if (count % 10 === 0) setStatus(`Beolvasás… ${count} fájl`);
+    }
+
+    setStatus(`Kész. Fájlok: ${count}. Problémás: ${items.filter(it => it.isProblem).length}.`);
+    refreshAllRows();
+  }
+
+  async function scanFileList(fileList) {
+    clearTable();
+    usingFSAccess = false;
+    dirHandle = null;
+    renameFilesCheckbox.checked = false;
+    renameFilesCheckbox.disabled = true;
+
+    const files = Array.from(fileList || []).filter(f => {
+      const nm = String(f.name || '').toLowerCase();
+      return nm.endsWith('.jpg') || nm.endsWith('.jpeg');
+    });
+
+    setStatus('Fájlok beolvasása…');
+    let i = 0;
+    for (const f of files) {
+      await analyzeJpegFile(f, null);
+      i++;
+      if (i % 10 === 0) setStatus(`Beolvasás… ${i}/${files.length}`);
+    }
+
+    setStatus(`Kész. Fájlok: ${files.length}. Problémás: ${items.filter(it => it.isProblem).length}. (Csak ellenőrzés – nem írható vissza)`);
+    refreshAllRows();
+  }
+
+  renameFilesCheckbox.addEventListener('change', refreshAllRows);
+
+  pickDirBtn.addEventListener('click', async () => {
+    if (!(window.showDirectoryPicker && window.isSecureContext)) {
+      alert('A böngésződben nem elérhető a Directory Picker (vagy nem biztonságos kontextus). Használd a "csak olvasás" módot.');
+      return;
+    }
+    try {
+      const handle = await window.showDirectoryPicker();
+      await scanDirectoryHandle(handle);
+    } catch (e) {
+      console.warn(e);
+    }
+  });
+
+  fallbackBtn.addEventListener('click', () => {
+    fallbackDirInput.value = '';
+    fallbackDirInput.click();
+  });
+
+  fallbackDirInput.addEventListener('change', (evt) => {
+    const files = evt.target.files;
+    if (!files || !files.length) return;
+    scanFileList(files);
+  });
+
+  fixBtn.addEventListener('click', async () => {
+    const renameOn = !!renameFilesCheckbox.checked;
+    const fixables = items.filter(it => it.canFix);
+    if (!usingFSAccess || !dirHandle) {
+      alert('Ebben a módban nem lehet visszaírni a mappába. Használd a Directory Picker gombot (írható mód).');
+      return;
+    }
+    if (!fixables.length) return;
+
+    fixBtn.disabled = true;
+    let ok = 0, fail = 0;
+
+    setStatus(`Javítás indul… (${fixables.length} fájl)`);
+
+    for (let idx = 0; idx < fixables.length; idx++) {
+      const it = fixables[idx];
+      it._cells.tdSt.innerHTML = '<span class="muted">Feldolgozás…</span>';
+
+      try {
+        const permittedDir = await ensureWritePermission(dirHandle);
+        if (!permittedDir) throw new Error('Nincs írási engedély a mappához.');
+
+        const permitted = await ensureWritePermission(it.handle);
+        if (!permitted) throw new Error('Nincs írási engedély.');
+
+        const file = await it.handle.getFile();
+        const ab = await file.arrayBuffer();
+
+        const fixedCode = it.targetCode;
+
+        // Mindig tisztítunk és egyetlen kánonikus kommentet írunk vissza.
+        const newBlob = PC.replacePehelyCodeInJpegArrayBuffer(ab, fixedCode);
+
+        const wantRename = renameOn && !!it.nameMismatch && !!it.desiredName;
+        if (wantRename) {
+          if (typeof dirHandle.removeEntry !== 'function') {
+            throw new Error('Az átnevezés nem támogatott ebben a böngészőben.');
+          }
+
+          const newName = it.desiredName;
+
+          // Ütközés kezelése: ha már létezik az új név, és az ott lévő fájl ugyanazt a kódot hordozza,
+          // akkor a duplikált (régi nevű) fájlt töröljük.
+          let existingHandle = null;
+          if (newName !== it.fileName) {
+            try {
+              existingHandle = await dirHandle.getFileHandle(newName);
+            } catch (e) {
+              existingHandle = null;
+            }
+          }
+
+          if (existingHandle) {
+            const permittedExisting = await ensureWritePermission(existingHandle);
+            if (!permittedExisting) throw new Error('Nincs írási engedély a célfájlhoz.');
+
+            const exFile = await existingHandle.getFile();
+            const exAb = await exFile.arrayBuffer();
+            const exCodes = PC.listPehelyCodesFromJpegArrayBuffer(exAb);
+            const exRaw = (exCodes && exCodes.length) ? exCodes[exCodes.length - 1] : null;
+
+            let exTarget = null;
+            if (exRaw) {
+              try { exTarget = PC.upgradeCodeToCurrent(exRaw); } catch (e) { exTarget = null; }
+            }
+            if (!exTarget) {
+              const exInf = inferCodeFromFilename(newName);
+              if (exInf) {
+                try { exTarget = PC.upgradeCodeToCurrent(exInf); } catch (e) { exTarget = null; }
+              }
+            }
+
+            if (exTarget !== fixedCode) {
+              throw new Error(`Névütközés: már létezik '${newName}'.`);
+            }
+
+            // Tisztítsuk meg a célfájlt is, hogy ott is csak egyetlen kánonikus komment maradjon.
+            const exNewBlob = PC.replacePehelyCodeInJpegArrayBuffer(exAb, fixedCode);
+            const wEx = await existingHandle.createWritable();
+            await wEx.write(exNewBlob);
+            await wEx.close();
+
+            // Régi duplikátum törlése
+            try {
+              await dirHandle.removeEntry(it.fileName);
+            } catch (e) {
+              if (!(e && e.name === 'NotFoundError')) throw e;
+            }
+
+            it.handle = existingHandle;
+            it.fileName = newName;
+
+          } else {
+            // Új néven létrehozás + írás
+            const newHandle = await dirHandle.getFileHandle(newName, { create: true });
+            const wNew = await newHandle.createWritable();
+            await wNew.write(newBlob);
+            await wNew.close();
+
+            // Régi törlése
+            if (newName !== it.fileName) {
+              await dirHandle.removeEntry(it.fileName);
+            }
+
+            it.handle = newHandle;
+            it.fileName = newName;
+          }
+        } else {
+          const writable = await it.handle.createWritable();
+          await writable.write(newBlob);
+          await writable.close();
+        }
+
+        it.lastFixError = null;
+
+        // frissítsük a sort
+        it.codeFound = fixedCode;
+        it.versionTag = versionTagFromCode(fixedCode);
+        it.codesInJpeg = [fixedCode];
+        it.needsCommentFix = false;
+        it.baseProblemReasons = [];
+        it.desiredName = desiredFilenameForCode(fixedCode);
+        it.nameMismatch = (!!it.desiredName && it.fileName !== it.desiredName);
+
+        refreshItemRow(it);
+        it._cells.tdSt.innerHTML = '<span class="ok">Javítva</span>';
+        ok++;
+      } catch (e) {
+        fail++;
+        it.lastFixError = (e && e.message) ? e.message : String(e);
+        it._cells.tdSt.innerHTML = `<span class="bad">Hiba: ${(e && e.message) ? e.message : String(e)}</span>`;
+      }
+
+      if ((idx + 1) % 5 === 0) {
+        setStatus(`Javítás… ${idx + 1}/${fixables.length} (OK: ${ok}, hiba: ${fail})`);
+      }
+    }
+
+    setStatus(`Javítás kész. OK: ${ok}, hiba: ${fail}.`);
+    refreshAllRows();
+  });
+
+})();
+</script>
+</body>
+</html>

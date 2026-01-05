@@ -1,5 +1,5 @@
 /* ============================================================
- * PehelyCore v75
+ * PehelyCore v80.3
  * Közös, DOM-független (offline-barát) algoritmusok a
  *   - Hópehely Generátor
  *   - HAVAZO
@@ -19,9 +19,277 @@
   const PehelyCore = {};
 
   // Verziók / konstansok
-  PehelyCore.VERSION = 'v75';
+  // KÖZPONTI VERZIÓ – a HTML-ek ezt olvassák ki.
+  PehelyCore.VERSION = "v81.8";
+  PehelyCore.CODE_FORMAT_VERSION = 1; // V01
+  PehelyCore.CODE_FORMAT_TAG = "V01";
+
   const DXF_TARGET_SIZE = 100.0; // mm – a modell max kiterjedése export előtt
   PehelyCore.DXF_TARGET_SIZE = DXF_TARGET_SIZE;
+
+  // ============================================================
+  //  DXF író (egységesítve) – v80.3
+  //  Cél: a DXF string összeállítása ne legyen duplikálva a HTML-ekben.
+  // ============================================================
+
+  class DxfWriter {
+    constructor() {
+      this._parts = [];
+      this._nl = '\r\n';
+    }
+    add(code, value) {
+      // A DXF formátum páros sorokból áll: group code + value
+      this._parts.push(String(code), this._nl, String(value), this._nl);
+    }
+    toString() {
+      return this._parts.join('');
+    }
+  }
+
+  function _dxfWriteHeader(writer) {
+    writer.add(0, 'SECTION');
+    writer.add(2, 'HEADER');
+    writer.add(0, 'ENDSEC');
+  }
+
+  function _dxfWriteTables(writer, opts = {}) {
+    const includeLtype = (opts.includeLtype !== false);
+
+    writer.add(0, 'SECTION');
+    writer.add(2, 'TABLES');
+
+    if (includeLtype) {
+      // LTYPE: CONTINUOUS
+      writer.add(0, 'TABLE');
+      writer.add(2, 'LTYPE');
+      writer.add(70, 1);
+      writer.add(0, 'LTYPE');
+      writer.add(2, 'CONTINUOUS');
+      writer.add(70, 0);
+      writer.add(3, 'Solid line');
+      writer.add(72, 65);
+      writer.add(73, 0);
+      writer.add(40, 0.0);
+      writer.add(0, 'ENDTAB');
+    }
+
+    // LAYER: 0 + kontúrok + keret + furat
+    writer.add(0, 'TABLE');
+    writer.add(2, 'LAYER');
+    writer.add(70, 5);
+
+    function layer(name, color) {
+      writer.add(0, 'LAYER');
+      writer.add(2, name);
+      writer.add(70, 0);
+      writer.add(62, color);
+      writer.add(6, 'CONTINUOUS');
+    }
+
+    layer('0', 7);
+    layer('Kulso_kontur', 7);
+    layer('Belso_kontur', 5);
+    layer('Furat', 1);
+    layer('Keret', 3);
+
+    writer.add(0, 'ENDTAB');
+    writer.add(0, 'ENDSEC');
+  }
+
+  function _dxfBeginBlocks(writer) {
+    writer.add(0, 'SECTION');
+    writer.add(2, 'BLOCKS');
+  }
+
+  function _dxfEndSection(writer) {
+    writer.add(0, 'ENDSEC');
+  }
+
+  function _dxfBeginEntities(writer) {
+    writer.add(0, 'SECTION');
+    writer.add(2, 'ENTITIES');
+  }
+
+  function _dxfFinish(writer) {
+    writer.add(0, 'ENDSEC');
+    writer.add(0, 'EOF');
+  }
+
+  function _pointsEqual(a, b) {
+    return a && b && a[0] === b[0] && a[1] === b[1];
+  }
+
+  function _uniqueContourPoints(points) {
+    if (!points || points.length < 2) return [];
+    const pts = points.slice();
+    // A core kontúrok zártak (utolsó = első) – ezt DXF LWPOLYLINE-hoz egyedivé tesszük.
+    if (pts.length >= 2 && _pointsEqual(pts[0], pts[pts.length - 1])) {
+      pts.pop();
+    }
+    return pts;
+  }
+
+  function computeBboxFromContours(contoursWithFlags) {
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const c of contoursWithFlags || []) {
+      const pts = (c && c.points) ? c.points : null;
+      if (!pts || pts.length < 2) continue;
+      const unique = _uniqueContourPoints(pts);
+      for (const p of unique) {
+        const x = p[0], y = p[1];
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+    if (!Number.isFinite(minX)) return null;
+    return { minX, maxX, minY, maxY, width: (maxX - minX), height: (maxY - minY) };
+  }
+
+  function dxfAddFlakeBlock(writer, opts) {
+    const blockName = String(opts.blockName || 'PEHELY');
+    const contoursWithFlags = opts.contoursWithFlags || [];
+
+    const bbox = computeBboxFromContours(contoursWithFlags);
+    const cx = Number.isFinite(opts.centerX) ? opts.centerX : (bbox ? (bbox.minX + bbox.maxX) / 2 : 0);
+    const cy = Number.isFinite(opts.centerY) ? opts.centerY : (bbox ? (bbox.minY + bbox.maxY) / 2 : 0);
+
+    const includeHole = (opts.includeHole !== false);
+    let hole = opts.hole || null;
+    if (includeHole && !hole) {
+      const minRectMm = opts.minRectMm;
+      hole = computeHangingHole(contoursWithFlags, minRectMm);
+    }
+
+    writer.add(0, 'BLOCK');
+    writer.add(8, '0');
+    writer.add(2, blockName);
+    writer.add(70, 0);
+    writer.add(10, 0); writer.add(20, 0); writer.add(30, 0);
+    writer.add(3, blockName);
+    writer.add(1, '');
+
+    for (const c of contoursWithFlags) {
+      const pts = (c && c.points) ? c.points : null;
+      if (!pts || pts.length < 4) continue;
+      const unique = _uniqueContourPoints(pts);
+      if (unique.length < 3) continue;
+
+      writer.add(0, 'LWPOLYLINE');
+      writer.add(8, c.isOuter ? 'Kulso_kontur' : 'Belso_kontur');
+      writer.add(62, c.isOuter ? 7 : 5);
+      writer.add(90, unique.length);
+      writer.add(70, 1); // zárt
+
+      for (const p of unique) {
+        writer.add(10, (p[0] - cx).toFixed(4));
+        writer.add(20, (p[1] - cy).toFixed(4));
+      }
+    }
+
+    if (includeHole && hole) {
+      writer.add(0, 'CIRCLE');
+      writer.add(8, 'Furat');
+      writer.add(10, (Number(hole.x) - cx).toFixed(4));
+      writer.add(20, (Number(hole.y) - cy).toFixed(4));
+      writer.add(30, 0);
+      writer.add(40, Number(hole.radius).toFixed(4));
+    }
+
+    writer.add(0, 'ENDBLK');
+  }
+
+  function dxfAddInsert(writer, opts) {
+    writer.add(0, 'INSERT');
+    writer.add(8, String(opts.layer || '0'));
+    writer.add(2, String(opts.blockName));
+    writer.add(10, Number(opts.x || 0).toFixed(4));
+    writer.add(20, Number(opts.y || 0).toFixed(4));
+    writer.add(30, 0);
+    const s = Number.isFinite(opts.scale) ? opts.scale : 1;
+    writer.add(41, s); writer.add(42, s); writer.add(43, s);
+    writer.add(50, Number(opts.rotationDeg || 0).toFixed(4));
+  }
+
+  function dxfAddSheetFrame(writer, opts) {
+    const sheetW = Number(opts.sheetW) || 0;
+    const sheetH = Number(opts.sheetH) || 0;
+    const offsetDown = Number(opts.offsetDown) || 0; // pozitív: lefelé
+    const yTop = -offsetDown;
+    const yBot = -(offsetDown + sheetH);
+
+    writer.add(0, 'LWPOLYLINE');
+    writer.add(8, String(opts.layer || 'Keret'));
+    writer.add(90, 4);
+    writer.add(70, 1); // zárt
+
+    writer.add(10, (0).toFixed(4));
+    writer.add(20, (yTop).toFixed(4));
+    writer.add(10, (sheetW).toFixed(4));
+    writer.add(20, (yTop).toFixed(4));
+    writer.add(10, (sheetW).toFixed(4));
+    writer.add(20, (yBot).toFixed(4));
+    writer.add(10, (0).toFixed(4));
+    writer.add(20, (yBot).toFixed(4));
+  }
+
+  function buildSingleFlakeDxf(code, contoursWithFlags, minRectMm) {
+    const writer = new DxfWriter();
+    _dxfWriteHeader(writer);
+    _dxfWriteTables(writer, { includeLtype: true });
+    _dxfBeginBlocks(writer);
+
+    const blockName = blockNameFromCode(code);
+    dxfAddFlakeBlock(writer, { blockName, contoursWithFlags, minRectMm, includeHole: true });
+
+    _dxfEndSection(writer); // BLOCKS
+
+    _dxfBeginEntities(writer);
+    dxfAddInsert(writer, { blockName, x: 0, y: 0, layer: '0', scale: 1, rotationDeg: 0 });
+    _dxfFinish(writer);
+    return writer.toString();
+  }
+
+  function buildCollectionDxf(opts) {
+    const writer = new DxfWriter();
+    _dxfWriteHeader(writer);
+    _dxfWriteTables(writer, { includeLtype: true });
+    _dxfBeginBlocks(writer);
+
+    const blocks = opts && Array.isArray(opts.blocks) ? opts.blocks : [];
+    for (const b of blocks) {
+      if (!b || !b.blockName || !b.contoursWithFlags) continue;
+      dxfAddFlakeBlock(writer, {
+        blockName: b.blockName,
+        contoursWithFlags: b.contoursWithFlags,
+        centerX: b.centerX,
+        centerY: b.centerY,
+        minRectMm: b.minRectMm,
+        includeHole: (b.includeHole !== false),
+        hole: b.hole
+      });
+    }
+
+    _dxfEndSection(writer); // BLOCKS
+
+    _dxfBeginEntities(writer);
+
+    const frames = opts && Array.isArray(opts.frames) ? opts.frames : [];
+    for (const f of frames) {
+      if (!f) continue;
+      dxfAddSheetFrame(writer, f);
+    }
+
+    const inserts = opts && Array.isArray(opts.inserts) ? opts.inserts : [];
+    for (const ins of inserts) {
+      if (!ins || !ins.blockName) continue;
+      dxfAddInsert(writer, ins);
+    }
+
+    _dxfFinish(writer);
+    return writer.toString();
+  }
 
   /**
    * DXF BLOCK/INSERT név a PEHELY-kódból.
@@ -46,6 +314,20 @@
     return out || 'PEHELY';
   }
   PehelyCore.blockNameFromCode = blockNameFromCode;
+  // DXF generálás (v80.3)
+  PehelyCore.DxfWriter = DxfWriter;
+  PehelyCore.computeBboxFromContours = computeBboxFromContours;
+  PehelyCore.dxfWriteHeader = _dxfWriteHeader;
+  PehelyCore.dxfWriteTables = _dxfWriteTables;
+  PehelyCore.dxfBeginBlocks = _dxfBeginBlocks;
+  PehelyCore.dxfBeginEntities = _dxfBeginEntities;
+  PehelyCore.dxfEndSection = _dxfEndSection;
+  PehelyCore.dxfFinish = _dxfFinish;
+  PehelyCore.dxfAddFlakeBlock = dxfAddFlakeBlock;
+  PehelyCore.dxfAddInsert = dxfAddInsert;
+  PehelyCore.dxfAddSheetFrame = dxfAddSheetFrame;
+  PehelyCore.buildSingleFlakeDxf = buildSingleFlakeDxf;
+  PehelyCore.buildCollectionDxf = buildCollectionDxf;
 
 
 function pointInPolygon(x, y, poly) {
@@ -80,8 +362,54 @@ function scalePolygon(poly, scale) {
     return scaled;
   }
 
+
+function trapezCodeFromValue(trapezVal) {
+    const v = Number.isFinite(trapezVal) ? trapezVal : 0;
+    const scaled = Math.round(Math.abs(v) * 10);
+    const two = String(scaled).padStart(2, '0');
+    if (scaled === 0) return '000';
+    return (v < 0 ? 'n' : 'p') + two;
+  }
+
+  function trapezValueFromCode(trapezCode) {
+    if (!trapezCode || typeof trapezCode !== 'string') return 0;
+    const s = trapezCode.trim();
+    if (s.length !== 3) return 0;
+    const signCh = s[0];
+    const digits = parseInt(s.slice(1), 10);
+    if (!Number.isFinite(digits)) return 0;
+    const mag = digits / 10;
+    if (signCh === '0') return 0;
+    if (signCh === 'm' || signCh === 'M' || signCh === 'n' || signCh === 'N') return -mag;
+    if (signCh === 'p' || signCh === 'P') return mag;
+    return 0;
+  }
+
+
+  function getCodeFormatVersion(codeString) {
+    const s = (codeString || '').trim();
+    const first = s.split('-')[0];
+    if (/^V\d\d$/i.test(first)) return parseInt(first.substring(1), 10) || 0;
+    return 0;
+  }
+
+  function stripCodeFormatPrefix(codeString) {
+    const s = (codeString || '').trim();
+    const parts = s.split('-');
+    if (parts.length && /^V\d\d$/i.test(parts[0])) {
+      return { version: parseInt(parts[0].substring(1), 10) || 0, body: parts.slice(1).join('-') };
+    }
+    return { version: 0, body: s };
+  }
+
+  function upgradeCodeToCurrent(codeString) {
+    const p = paramsFromCode(codeString);
+    return buildCodeFromParams(p);
+  }
+
 function paramsFromCode(codeString) {
-    const parts = codeString.split('-');
+    const stripped = stripCodeFormatPrefix(codeString);
+    const parts = stripped.body.split('-');
     if (parts.length < 12) {
       throw new Error('Érvénytelen PEHELY kód: ' + codeString);
     }
@@ -89,16 +417,35 @@ function paramsFromCode(codeString) {
     // Régi: angle-ratio-space-red-tip-tipScale-tipOnly-tipCenter-trunk-arms-minRect-grow
     // Új:   angle-ratio-space-red-tip-runoff-tipScale-tipOnly-tipCenter-trunk-arms-minRect-grow
     let angleStr, ratioStr, spaceStr, redStr;
-    let tipCode, runoffCode, tipScaleStr, tipOnlyFlag, tipCenterFlag, trunkFlag, armsStr, minRectStr, growFlag;
+    let tipCode, runoffCode, tipScaleStr, tipOnlyFlag, tipCenterFlag, trunkFlag, armsStr, minRectStr, trapezCode, growFlag;
+
     if (parts.length === 12) {
+      // Régi (nincs lefutás és nincs trapéz)
       [angleStr, ratioStr, spaceStr, redStr,
        tipCode, tipScaleStr, tipOnlyFlag, tipCenterFlag, trunkFlag,
        armsStr, minRectStr, growFlag] = parts;
       runoffCode = 'NE';
+      trapezCode = '000';
+    } else if (parts.length === 13) {
+      // Lehet: régi (van lefutás, nincs trapéz) vagy új (nincs lefutás, van trapéz)
+      const maybeRunoff = parts[5];
+      if (/^[A-Z]{2}$/.test(maybeRunoff)) {
+        [angleStr, ratioStr, spaceStr, redStr,
+         tipCode, runoffCode, tipScaleStr, tipOnlyFlag, tipCenterFlag, trunkFlag,
+         armsStr, minRectStr, growFlag] = parts;
+        trapezCode = '000';
+      } else {
+        [angleStr, ratioStr, spaceStr, redStr,
+         tipCode, tipScaleStr, tipOnlyFlag, tipCenterFlag, trunkFlag,
+         armsStr, minRectStr, trapezCode, growFlag] = parts;
+        runoffCode = 'NE';
+      }
     } else {
+      // Új (van lefutás és trapéz)
       [angleStr, ratioStr, spaceStr, redStr,
        tipCode, runoffCode, tipScaleStr, tipOnlyFlag, tipCenterFlag, trunkFlag,
-       armsStr, minRectStr, growFlag] = parts;
+       armsStr, minRectStr, trapezCode, growFlag] = parts.slice(0, 14);
+      trapezCode = trapezCode || '000';
     }
 
     const angle   = parseFloat(angleStr) || 0;
@@ -115,6 +462,7 @@ function paramsFromCode(codeString) {
     const tipScale   = parseFloat(tipScaleStr);
     const arms       = parseInt(armsStr, 10);
     const minRectMm  = parseFloat(minRectStr);
+    const trapezVal  = Math.max(-5, Math.min(5, trapezValueFromCode(trapezCode)));
 
     
     const runoff = (function(code){
@@ -139,6 +487,7 @@ return {
       showTrunk:         (trunkFlag     === 'Y'),
       armCount:          Number.isFinite(arms) ? arms : 6,
       minRectMm:         Number.isFinite(minRectMm) ? minRectMm : 0,
+      trapez:            Number.isFinite(trapezVal) ? trapezVal : 0,
       growSmallRects:    (growFlag === 'Y'),
       runoff:            runoff
     };
@@ -175,9 +524,12 @@ function buildCodeFromParams(p) {
 
     const armsStr     = Math.round(p.armCount).toString();
     const minRectStr  = (Number.isFinite(p.minRectMm) ? p.minRectMm : 0).toFixed(1);
+    const trapezCode = trapezCodeFromValue(p.trapez);
     const growFlag    = p.growSmallRects ? 'Y' : 'N';
 
-    return `${angleStr}-${ratioStr}-${spacingStr}-${redStr}-${tipCode}-${runoffCode}-${tipScaleStr}-${tipOnlyFlag}-${tipCenterFlag}-${trunkFlag}-${armsStr}-${minRectStr}-${growFlag}`;
+    const body = `${angleStr}-${ratioStr}-${spacingStr}-${redStr}-${tipCode}-${runoffCode}-${tipScaleStr}-${tipOnlyFlag}-${tipCenterFlag}-${trunkFlag}-${armsStr}-${minRectStr}-${trapezCode}-${growFlag}`;
+
+    return `${PehelyCore.CODE_FORMAT_TAG}-${body}`;
   }
 
 function buildSingleTreeSegments(params) {
@@ -459,9 +811,101 @@ function buildRegularHexFromEdge(p1, p2, dir, tipScale) {
     return scalePolygon(hexPoly, tipScale);
   }
 
+
+function _scaleEdgeAboutMid(a, b, factor) {
+    const mx = (a[0] + b[0]) * 0.5;
+    const my = (a[1] + b[1]) * 0.5;
+    const vx = a[0] - mx;
+    const vy = a[1] - my;
+    return [
+      [mx + vx * factor, my + vy * factor],
+      [mx - vx * factor, my - vy * factor]
+    ];
+  }
+
+  function _ensureEdgeMinWidth(a, b, minWidth) {
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
+    const w = Math.hypot(dx, dy);
+    if (!(minWidth > 0) || !isFinite(minWidth) || w <= 1e-9) return [a, b];
+    if (w >= minWidth - 1e-9) return [a, b];
+    const f = minWidth / w;
+    return _scaleEdgeAboutMid(a, b, f);
+  }
+
+  function applyTrapezToRectPoly(rectPoly, trapezVal, minWidthModel) {
+    const t = (typeof trapezVal === 'number' && isFinite(trapezVal)) ? trapezVal : 0;
+    const absT = Math.abs(t);
+    if (absT < 1e-9) {
+      // Still enforce end-min-width if requested (harmless for normal rectangles)
+      const mw = (typeof minWidthModel === 'number' && isFinite(minWidthModel)) ? minWidthModel : 0;
+      if (!(mw > 0) || !rectPoly || rectPoly.length < 4) return rectPoly;
+      const farA = rectPoly[0], farB = rectPoly[1];
+      const nearA = rectPoly[3], nearB = rectPoly[2];
+      const [farA2, farB2] = _ensureEdgeMinWidth([farA[0], farA[1]], [farB[0], farB[1]], mw);
+      const [nearA2, nearB2] = _ensureEdgeMinWidth([nearA[0], nearA[1]], [nearB[0], nearB[1]], mw);
+      return [farA2, farB2, nearB2, nearA2, farA2];
+    }
+
+    // Értelmezés: 0 → téglalap, egyébként a választott véget (belső/külső) szélesíti.
+    // A "szélesítés" mértéke: (1 + |Trapéz|)-szeres.
+    const factor = 1 + absT;
+
+    const farA0 = rectPoly[0], farB0 = rectPoly[1];
+    const nearA0 = rectPoly[3], nearB0 = rectPoly[2];
+
+    let farA = [farA0[0], farA0[1]];
+    let farB = [farB0[0], farB0[1]];
+    let nearA = [nearA0[0], nearA0[1]];
+    let nearB = [nearB0[0], nearB0[1]];
+
+    if (t > 0) {
+      [farA, farB] = _scaleEdgeAboutMid(farA, farB, factor);
+    } else {
+      [nearA, nearB] = _scaleEdgeAboutMid(nearA, nearB, factor);
+    }
+
+    const mw = (typeof minWidthModel === 'number' && isFinite(minWidthModel)) ? minWidthModel : 0;
+    if (mw > 0) {
+      const wFar = Math.hypot(farB[0] - farA[0], farB[1] - farA[1]);
+      const wNear = Math.hypot(nearB[0] - nearA[0], nearB[1] - nearA[1]);
+
+      // Trapéz min-vastagság korrekció:
+      // a keskenyebb véget felhízlaljuk "mw"-ig, és ugyanennyivel növeljük a szélesebb véget is.
+      if (wFar > 1e-9 && wNear > 1e-9) {
+        const narrowIsNear = (wNear <= wFar);
+        const narrowW = narrowIsNear ? wNear : wFar;
+        const wideW   = narrowIsNear ? wFar  : wNear;
+
+        if (narrowW < mw - 1e-9) {
+          const delta = mw - narrowW;
+          const fN = mw / narrowW;
+          const fW = (wideW + delta) / wideW;
+
+          if (narrowIsNear) {
+            [nearA, nearB] = _scaleEdgeAboutMid(nearA, nearB, fN);
+            [farA, farB] = _scaleEdgeAboutMid(farA, farB, fW);
+          } else {
+            [farA, farB] = _scaleEdgeAboutMid(farA, farB, fN);
+            [nearA, nearB] = _scaleEdgeAboutMid(nearA, nearB, fW);
+          }
+        }
+      } else {
+        // Degenerált eset: marad az alap min-vastagság korrekció
+        [farA, farB] = _ensureEdgeMinWidth(farA, farB, mw);
+        [nearA, nearB] = _ensureEdgeMinWidth(nearA, nearB, mw);
+      }
+    }
+
+    return [farA, farB, nearB, nearA, farA];
+  }
+
 function segmentToPolys(seg, params) {
     const polys = [];
-    const mainRect = makeRectFromBase(seg.bx, seg.by, seg.length, seg.width, seg.angle);
+    const minWidthModel = (typeof params._minWidthModel === 'number' && isFinite(params._minWidthModel)) ? params._minWidthModel : 0;
+    const trapezVal = (typeof params.trapez === 'number' && isFinite(params.trapez)) ? params.trapez : 0;
+    const rect0 = makeRectFromBase(seg.bx, seg.by, seg.length, seg.width, seg.angle);
+    const mainRect = applyTrapezToRectPoly(rect0, trapezVal, minWidthModel);
 
     const tipMode     = seg.tipMode;
     const tipScale    = (typeof seg.tipScale === 'number' && isFinite(seg.tipScale)) ? seg.tipScale : 1;
@@ -480,19 +924,26 @@ function segmentToPolys(seg, params) {
     const d = { x: Math.cos(seg.angle), y: Math.sin(seg.angle) };
 
     if (tipMode === 2) {
-      function addYAt(baseX, baseY, mainAngle) {
+      const farA = mainRect[0], farB = mainRect[1];
+      const nearA = mainRect[3], nearB = mainRect[2];
+
+      const capWidthTop = Math.hypot(farB[0] - farA[0], farB[1] - farA[1]);
+      const capWidthBase = Math.hypot(nearB[0] - nearA[0], nearB[1] - nearA[1]);
+
+      function addYAt(baseX, baseY, mainAngle, capWidth) {
         const capLength = seg.length * 0.3 * tipScale;
-        const capWidth  = seg.width;
+        const w = (typeof capWidth === 'number' && isFinite(capWidth) && capWidth > 0) ? capWidth : seg.width;
         const deltas = [Math.PI / 3, -Math.PI / 3];
         for (const delta of deltas) {
           const tipAngle = mainAngle + delta;
-          polys.push(makeRectFromBase(baseX, baseY, capLength, capWidth, tipAngle));
+          polys.push(makeRectFromBase(baseX, baseY, capLength, w, tipAngle));
         }
       }
       const tipBaseX = seg.bx + d.x * seg.length;
       const tipBaseY = seg.by + d.y * seg.length;
-      addYAt(tipBaseX, tipBaseY, seg.angle);
-      if (addBaseTips) addYAt(seg.bx, seg.by, seg.angle + Math.PI);
+      const capWidthUnified = addBaseTips ? Math.max(capWidthTop, capWidthBase) : capWidthTop;
+      addYAt(tipBaseX, tipBaseY, seg.angle, capWidthUnified);
+      if (addBaseTips) addYAt(seg.bx, seg.by, seg.angle + Math.PI, capWidthUnified);
       return polys;
     }
 
@@ -504,25 +955,49 @@ function segmentToPolys(seg, params) {
     const dTop  = d;
     const dBase = { x: -d.x, y: -d.y };
 
+    // Ha a törzs tövén (közép) is van végelem, akkor a trapéz miatt a két vég szélessége eltérhet.
+    // Ilyenkor a végelemeket a szélesebbik véghez igazítjuk, hogy mindkét oldalon ugyanakkora legyen.
+    let p1_far_tip = p1_far,  p2_far_tip = p2_far;
+    let p1_near_tip = p1_near, p2_near_tip = p2_near;
+    if (addBaseTips) {
+      const Lfar  = Math.hypot(p2_far[0]  - p1_far[0],  p2_far[1]  - p1_far[1]);
+      const Lnear = Math.hypot(p2_near[0] - p1_near[0], p2_near[1] - p1_near[1]);
+      const Lw = Math.max(Lfar, Lnear);
+      function edgeWithLength(a, b, L) {
+        const mx = (a[0] + b[0]) / 2;
+        const my = (a[1] + b[1]) / 2;
+        const dx = b[0] - a[0];
+        const dy = b[1] - a[1];
+        const len = Math.hypot(dx, dy);
+        if (!(len > 0) || !(L > 0)) return [a, b];
+        const ux = dx / len;
+        const uy = dy / len;
+        const h = L / 2;
+        return [[mx - ux * h, my - uy * h], [mx + ux * h, my + uy * h]];
+      }
+      [p1_far_tip,  p2_far_tip]  = edgeWithLength(p1_far,  p2_far,  Lw);
+      [p1_near_tip, p2_near_tip] = edgeWithLength(p1_near, p2_near, Lw);
+    }
+
     if (tipMode === 1) {
-      const hexTop = buildTentHexFromEdge(p1_far,  p2_far,  dTop,  tipScale);
+      const hexTop = buildTentHexFromEdge(p1_far_tip,  p2_far_tip,  dTop,  tipScale);
       if (hexTop) polys.push(hexTop);
       if (addBaseTips) {
-        const hexBase = buildTentHexFromEdge(p1_near, p2_near, dBase, tipScale);
+        const hexBase = buildTentHexFromEdge(p1_near_tip, p2_near_tip, dBase, tipScale);
         if (hexBase) polys.push(hexBase);
       }
     } else if (tipMode === 3) {
-      const hexTop = buildRegularHexFromEdge(p1_far,  p2_far,  dTop,  tipScale);
+      const hexTop = buildRegularHexFromEdge(p1_far_tip,  p2_far_tip,  dTop,  tipScale);
       if (hexTop) polys.push(hexTop);
       if (addBaseTips) {
-        const hexBase = buildRegularHexFromEdge(p1_near, p2_near, dBase, tipScale);
+        const hexBase = buildRegularHexFromEdge(p1_near_tip, p2_near_tip, dBase, tipScale);
         if (hexBase) polys.push(hexBase);
       }
     } else if (tipMode === 4) {
-      const hexTop = buildTrapHexFromEdge(p1_far,  p2_far,  dTop,  tipScale);
+      const hexTop = buildTrapHexFromEdge(p1_far_tip,  p2_far_tip,  dTop,  tipScale);
       if (hexTop) polys.push(hexTop);
       if (addBaseTips) {
-        const hexBase = buildTrapHexFromEdge(p1_near, p2_near, dBase, tipScale);
+        const hexBase = buildTrapHexFromEdge(p1_near_tip, p2_near_tip, dBase, tipScale);
         if (hexBase) polys.push(hexBase);
       }
     }
@@ -530,9 +1005,17 @@ function segmentToPolys(seg, params) {
     return polys;
   }
 
+
+
+
+
 function computePolysForParams(params) {
     const segments = buildSnowflakeSegments(params);
     if (!segments.length) return null;
+
+
+    // Internal helper for segmentToPolys(): will be set to the correct value after scaleModelToMm is known.
+    params._minWidthModel = 0;
 
     let minX0 = Infinity, maxX0 = -Infinity;
     let minY0 = Infinity, maxY0 = -Infinity;
@@ -557,6 +1040,10 @@ function computePolysForParams(params) {
     const minRectMm  = Math.max(0, params.minRectMm || 0);
     const growSmall  = params.growSmallRects;
     const minWidthModel = minRectMm > 0 ? (minRectMm / scaleModelToMm) : 0;
+
+
+    // Used by segmentToPolys() to apply trapez/min-width adjustments.
+    params._minWidthModel = minWidthModel;
 
     const adjustedSegments = [];
     for (const seg of segments) {
@@ -604,6 +1091,10 @@ function computePolysForParams(params) {
       maxY: height * scale
     };
   }
+
+
+
+
 
 function computePolysForCode(codeString) {
     const params = paramsFromCode(codeString);
@@ -898,200 +1389,309 @@ function buildLaserContoursExact(scaledPolys) {
   return contours;
 }
 
-function addJpegCommentToArrayBuffer(arrayBuffer, comment) {
-    const bytes = new Uint8Array(arrayBuffer);
-    if (bytes.length < 4 || bytes[0] !== 0xFF || bytes[1] !== 0xD8) {
-      return new Blob([bytes], { type: 'image/jpeg' });
-    }
-    const encoder = new TextEncoder();
-    const commentBytes = encoder.encode(comment);
-    const len = commentBytes.length + 2;
-
-    const newBytes = new Uint8Array(bytes.length + commentBytes.length + 4);
-    let offset = 0;
-
-    newBytes[offset++] = 0xFF;
-    newBytes[offset++] = 0xD8;
-
-    newBytes[offset++] = 0xFF;
-    newBytes[offset++] = 0xFE;
-    newBytes[offset++] = (len >> 8) & 0xFF;
-    newBytes[offset++] = len & 0xFF;
-
-    newBytes.set(commentBytes, offset);
-    offset += commentBytes.length;
-
-    newBytes.set(bytes.subarray(2), offset);
-
-    return new Blob([newBytes], { type: 'image/jpeg' });
-  }
 
 
-  // Blob -> ArrayBuffer (a JPG komment beágyazáshoz).
-  // Korábbi verziókban ez a helper még a HTML-ben volt; a core-ba is kell.
-  async function blobToArrayBuffer(blob) {
-    if (!blob) throw new Error('blobToArrayBuffer: blob null');
-    if (typeof blob.arrayBuffer === 'function') return await blob.arrayBuffer();
-    // Fallback régebbi böngészőkre
-    return await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = () => reject(reader.error || new Error('FileReader error'));
-      reader.readAsArrayBuffer(blob);
+// ====== DXF kontúr variánsok (B, C) – teszteléshez ======
+function buildLaserContoursExact_B(scaledPolys) {
+    if (!scaledPolys || !scaledPolys.length) return [];
+
+    const EPS = 1e-9;
+
+    const polyInfos = scaledPolys.map(poly => {
+      const unique = poly.slice(0, poly.length - 1);
+      let minX = Infinity, maxX = -Infinity;
+      let minY = Infinity, maxY = -Infinity;
+      for (const [x,y] of unique) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+      return { poly, unique, minX, maxX, minY, maxY };
     });
-  }
 
-function createJpegBlobForCode(code, paramsOrTheme = null) {
-    /**
-     * JPEG előnézetet készít egy PEHELY kódhoz.
-     *
-     * 2. paraméter (paramsOrTheme) jelentése:
-     *  - string: téma / színvilág: 'blue' (alapértelmezett) vagy 'bordo'
-     *  - object: paraméter-felülbírálás (Generator exportnál használjuk)
-     *  - object { params: {...}, theme: 'bordo' }: opcionális, későbbi bővíthetőség
-     *
-     * Fontos: a HAVAZO a "csak kártyán szereplő" (nincs JPG) előnézetekhez
-     * 'bordo' témát kér; a meglévő (betöltött/mentett) JPG-k a 'blue' témát használják.
-     */
-    let theme = 'blue';
-    let paramsOverride = null;
+    function pointInAnyPoly(x, y) {
+      for (const info of polyInfos) {
+        if (x < info.minX - 1e-6 || x > info.maxX + 1e-6 ||
+            y < info.minY - 1e-6 || y > info.maxY + 1e-6) continue;
+        if (pointInPolygon(x, y, info.poly)) return true;
+      }
+      return false;
+    }
 
-    if (typeof paramsOrTheme === 'string') {
-      theme = paramsOrTheme;
-    } else if (paramsOrTheme && typeof paramsOrTheme === 'object') {
-      if (paramsOrTheme.params && typeof paramsOrTheme.params === 'object') {
-        paramsOverride = paramsOrTheme.params;
-        if (typeof paramsOrTheme.theme === 'string') theme = paramsOrTheme.theme;
+    const edges = [];
+    for (let pi = 0; pi < scaledPolys.length; pi++) {
+      const poly = scaledPolys[pi];
+      const unique = poly.slice(0, poly.length - 1);
+      const n = unique.length;
+      if (n < 2) continue;
+      for (let i = 0; i < n; i++) {
+        const a = unique[i];
+        const b = unique[(i + 1) % n];
+        edges.push({
+          ax: a[0], ay: a[1],
+          bx: b[0], by: b[1],
+          polyIndex: pi,
+          splitTs: [0, 1]
+        });
+      }
+    }
+
+    function addParam(arr, t) {
+      if (t < -EPS || t > 1 + EPS) return;
+      t = Math.max(0, Math.min(1, t));
+      for (let i = 0; i < arr.length; i++) {
+        if (Math.abs(arr[i] - t) < 1e-6) return;
+      }
+      arr.push(t);
+    }
+
+    function intersectEdges(e1, e2) {
+      const p = { x: e1.ax, y: e1.ay };
+      const r = { x: e1.bx - e1.ax, y: e1.by - e1.ay };
+      const q = { x: e2.ax, y: e2.ay };
+      const s = { x: e2.bx - e2.ax, y: e2.by - e2.ay };
+
+      const rxs = r.x * s.y - r.y * s.x;
+      const qmp = { x: q.x - p.x, y: q.y - p.y };
+      const qpxr = qmp.x * r.y - qmp.y * r.x;
+      const rr = r.x * r.x + r.y * r.y;
+      const ss = s.x * s.x + s.y * s.y;
+
+      if (Math.abs(rxs) < 1e-9) {
+        if (Math.abs(qpxr) > 1e-9) return;
+
+        // Collinear overlap: split both segments at overlap endpoints
+        if (rr < 1e-12 || ss < 1e-12) return;
+
+        const t0 = ( (q.x - p.x) * r.x + (q.y - p.y) * r.y ) / rr;
+        const t1 = ( (q.x + s.x - p.x) * r.x + (q.y + s.y - p.y) * r.y ) / rr;
+
+        const tmin = Math.max(0, Math.min(t0, t1));
+        const tmax = Math.min(1, Math.max(t0, t1));
+        if (tmax < -1e-9 || tmin > 1 + 1e-9 || tmax - tmin < 1e-9) return;
+
+        addParam(e1.splitTs, tmin);
+        addParam(e1.splitTs, tmax);
+
+        const u0 = ( (p.x - q.x) * s.x + (p.y - q.y) * s.y ) / ss;
+        const u1 = ( (p.x + r.x - q.x) * s.x + (p.y + r.y - q.y) * s.y ) / ss;
+
+        const umin = Math.max(0, Math.min(u0, u1));
+        const umax = Math.min(1, Math.max(u0, u1));
+        if (umax < -1e-9 || umin > 1 + 1e-9 || umax - umin < 1e-9) return;
+
+        addParam(e2.splitTs, umin);
+        addParam(e2.splitTs, umax);
       } else {
-        // közvetlen paraméter-objektum
-        paramsOverride = paramsOrTheme;
+        const t = (qmp.x * s.y - qmp.y * s.x) / rxs;
+        const u = (qmp.x * r.y - qmp.y * r.x) / rxs;
+        if (t >= -1e-9 && t <= 1 + 1e-9 && u >= -1e-9 && u <= 1 + 1e-9) {
+          addParam(e1.splitTs, t);
+          addParam(e2.splitTs, u);
+        }
       }
     }
 
-    const params = paramsOverride || paramsFromCode(code);
-    const polyData = computePolysForParams(params);
-    if (!polyData) return Promise.resolve(null);
-    const { polys, minX, maxX, minY, maxY } = polyData;
-
-    // Színpaletta – a felhasználói minták alapján
-    const palette = (theme === 'bordo')
-      ? { bg: '#5e0700', fg: '#fbeed2', text: '#fbeed2' }
-      : { bg: '#001633', fg: '#bfe9ff', text: '#ffffff' };
-
-    const canvas = document.createElement('canvas');
-    canvas.width  = 600;
-    canvas.height = 640;
-    const ctx = canvas.getContext('2d');
-
-    // háttér
-    ctx.fillStyle = palette.bg;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    const width  = maxX - minX || 1;
-    const height = maxY - minY || 1;
-
-    const marginX   = 40;
-    const topMargin = 40;
-    const textSpace = 70;
-    const drawWidth  = canvas.width - 2 * marginX;
-    const drawHeight = canvas.height - topMargin - textSpace;
-
-    const scale  = 0.95 * Math.min(drawWidth / width, drawHeight / height);
-    const cx     = (minX + maxX) / 2;
-    const cy     = (minY + maxY) / 2;
-    const originX = canvas.width / 2;
-    const originY = topMargin + drawHeight / 2;
-
-    ctx.lineJoin    = 'round';
-    ctx.lineCap     = 'round';
-    ctx.lineWidth   = 1.2;
-    ctx.fillStyle   = palette.fg;
-    ctx.strokeStyle = palette.fg;
-
-    for (const poly of polys) {
-      if (!poly || poly.length < 2) continue;
-      ctx.beginPath();
-      for (let i = 0; i < poly.length; i++) {
-        const x = poly[i][0];
-        const y = poly[i][1];
-        const sx = originX + (x - cx) * scale;
-        const sy = originY - (y - cy) * scale;
-        if (i === 0) ctx.moveTo(sx, sy);
-        else ctx.lineTo(sx, sy);
+    for (let i = 0; i < edges.length; i++) {
+      for (let j = i + 1; j < edges.length; j++) {
+        intersectEdges(edges[i], edges[j]);
       }
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
     }
 
-    // kód felirat alul
-    ctx.fillStyle = palette.text;
-    ctx.font = '16px system-ui, -apple-system, BlinkMacSystemFont,"Segoe UI",sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(code, canvas.width / 2, canvas.height - textSpace / 2);
+    const rawSegments = [];
+    for (const e of edges) {
+      const { ax, ay, bx, by, splitTs } = e;
+      splitTs.sort((a, b) => a - b);
+      // közeli metszési paraméterek összevonása (numerikus zaj csökkentése)
+      const ts = [];
+      for (let ii = 0; ii < splitTs.length; ii++) {
+        const t = splitTs[ii];
+        if (!ts.length || Math.abs(t - ts[ts.length - 1]) > 1e-6) ts.push(t);
+      }
+      for (let k = 0; k < ts.length - 1; k++) {
+        const t0 = ts[k];
+        const t1 = ts[k + 1];
+        if (t1 - t0 < 1e-5) continue;
+        const x0 = ax + (bx - ax) * t0;
+        const y0 = ay + (by - ay) * t0;
+        const x1 = ax + (bx - ax) * t1;
+        const y1 = ay + (by - ay) * t1;
+        rawSegments.push({ x0, y0, x1, y1 });
+      }
+    }
 
-    return new Promise((resolve) => {
-      canvas.toBlob(async (blob) => {
-        if (!blob) {
-          resolve(null);
-          return;
-        }
-        try {
-          const arr = await blobToArrayBuffer(blob);
-          const commentedBlob = addJpegCommentToArrayBuffer(arr, 'PEHELY-' + code);
-          resolve(commentedBlob);
-        } catch (e) {
-          console.error('JPG komment beágyazási hiba:', e);
-          resolve(blob);
-        }
-      }, 'image/jpeg', 0.92);
-    });
+      const orientedSegments = [];
+  for (const seg of rawSegments) {
+    const dx = seg.x1 - seg.x0;
+    const dy = seg.y1 - seg.y0;
+    const len = Math.hypot(dx, dy);
+    if (len < 1e-4) continue;
+
+    const mx = 0.5 * (seg.x0 + seg.x1);
+    const my = 0.5 * (seg.y0 + seg.y1);
+
+    // A (x0,y0)->(x1,y1) irány bal oldali normálja
+    const nx = -dy / len;
+    const ny =  dx / len;
+        const off = Math.max(1e-4, Math.min(5e-3, 0.002 * len));
+
+    const pxL = mx + nx * off;
+    const pyL = my + ny * off;
+    const pxR = mx - nx * off;
+    const pyR = my - ny * off;
+
+    const insideL = pointInAnyPoly(pxL, pyL);
+    const insideR = pointInAnyPoly(pxR, pyR);
+
+    if (insideL === insideR) continue; // nem határszegmens
+
+    // Irányítsuk úgy a szegmenst, hogy a "szilárd" rész bal oldalon legyen.
+    if (insideL) {
+      orientedSegments.push(seg);
+    } else {
+      orientedSegments.push({ x0: seg.x1, y0: seg.y1, x1: seg.x0, y1: seg.y0 });
+    }
   }
 
-function parseCodeFromJpegArrayBuffer(arrayBuffer) {
-    const bytes = new Uint8Array(arrayBuffer);
-    if (bytes.length < 4 || bytes[0] !== 0xFF || bytes[1] !== 0xD8) return null;
+  // --- Build closed contours from oriented boundary segments (single-use edges; no duplicates) ---
+    const KEY_SCALE = 1e5; // finomabb kvantálás a robusztusabb illesztéshez
+  const vKey = (x, y) => Math.round(x * KEY_SCALE) + ',' + Math.round(y * KEY_SCALE);
 
-    let i = 2;
-    while (i + 4 <= bytes.length) {
-      if (bytes[i] !== 0xFF) { i++; continue; }
-      const marker = bytes[i + 1];
-      if (marker === 0xD9 || marker === 0xDA) break;
-      const len = (bytes[i + 2] << 8) | bytes[i + 3];
-      if (len < 2 || i + 2 + len > bytes.length) break;
+  // Deduplicate undirected segments (numeric noise / overlap can create duplicates)
+  const seenUnd = new Set();
 
-      if (marker === 0xFE) {
-        const start = i + 4;
-        const end   = i + 2 + len;
-        const comBytes = bytes.subarray(start, end);
-        const decoder  = new TextDecoder('utf-8');
-        const text     = decoder.decode(comBytes);
-        const idx      = text.indexOf('PEHELY-');
-        if (idx !== -1) {
-          const code = text.substring(idx + 7).trim();
-          if (code) return code;
-        }
-      }
-      i += 2 + len;
+  const verts = new Map(); // key -> { x, y, outs: [] }
+  const allEdges = [];     // directed edges (each boundary segment appears once)
+
+  function getVert(k, x, y) {
+    let v = verts.get(k);
+    if (!v) {
+      v = { x, y, outs: [] };
+      verts.set(k, v);
     }
-    return null;
+    return v;
   }
 
+  function addEdge(k0, x0, y0, k1, x1, y1) {
+    const from = getVert(k0, x0, y0);
+    const to   = getVert(k1, x1, y1);
+    const ang  = Math.atan2(to.y - from.y, to.x - from.x);
+    const e = {
+      fromK: k0, toK: k1,
+      fromPt: [from.x, from.y],
+      toPt: [to.x, to.y],
+      ang,
+      visited: false
+    };
+    from.outs.push(e);
+    allEdges.push(e);
+  }
 
-/**
- * Kontúrok számítása (külső/belső) paraméterekből.
- * DOM-mentes: csak geometriát ad vissza.
- *
- * Visszatérés:
- *   { contoursWithFlags: [{points:[[x,y],...], isOuter:boolean}, ...] }
- * A pontlista zárt (utolsó pont = első), ahogy a buildLaserContoursExact adja.
- */
-function computeContoursForParams(params) {
+  for (const seg of orientedSegments) {
+    const k0 = vKey(seg.x0, seg.y0);
+    const k1 = vKey(seg.x1, seg.y1);
+
+    // undirected key
+    const und = (k0 < k1) ? (k0 + '|' + k1) : (k1 + '|' + k0);
+    if (seenUnd.has(und)) continue;
+    seenUnd.add(und);
+
+    addEdge(k0, seg.x0, seg.y0, k1, seg.x1, seg.y1);
+  }
+
+  // Sort outgoing edges around each vertex by angle
+  for (const v of verts.values()) {
+    v.outs.sort((a, b) => a.ang - b.ang);
+  }
+
+  function normAngle(a) {
+    while (a <= -Math.PI) a += 2 * Math.PI;
+    while (a >  Math.PI) a -= 2 * Math.PI;
+    return a;
+  }
+
+  function angleDiffCCW(fromAng, toAng) {
+    // minimal positive CCW turn from fromAng to toAng, in (0, 2π]
+    let d = normAngle(toAng - fromAng);
+    if (d <= 0) d += 2 * Math.PI;
+    return d;
+  }
+
+  function pickNextEdge(prevEdge) {
+    const v = verts.get(prevEdge.toK);
+    if (!v || !v.outs.length) return null;
+
+    // Incoming direction at the vertex: from current vertex back to previous vertex
+    const inAng = Math.atan2(
+      prevEdge.fromPt[1] - prevEdge.toPt[1],
+      prevEdge.fromPt[0] - prevEdge.toPt[0]
+    );
+
+    let best = null;
+    let bestTurn = Infinity;
+
+    for (const e of v.outs) {
+      if (e.visited) continue;
+      const turn = angleDiffCCW(inAng, e.ang);
+      if (turn < bestTurn) {
+        bestTurn = turn;
+        best = e;
+      }
+    }
+    return best;
+  }
+
+  const contours = [];
+  const MAX_STEPS = allEdges.length + 10;
+
+  for (const startEdge of allEdges) {
+    if (startEdge.visited) continue;
+
+    const startK = startEdge.fromK;
+    const contour = [startEdge.fromPt.slice()];
+    let e = startEdge;
+    let steps = 0;
+
+    while (e && !e.visited && steps < MAX_STEPS) {
+      e.visited = true;
+      contour.push(e.toPt.slice());
+
+      // Closed when we return to the starting vertex
+      if (e.toK === startK) break;
+
+      e = pickNextEdge(e);
+      steps++;
+    }
+
+    // Accept only properly closed loops
+    if (contour.length >= 4) {
+      const first = contour[0];
+      const last  = contour[contour.length - 1];
+      const d = Math.hypot(first[0] - last[0], first[1] - last[1]);
+      if (d > 1e-3) continue;
+
+      // Remove tiny consecutive duplicates
+      const cleaned = [contour[0]];
+      for (let i = 1; i < contour.length; i++) {
+        const p = contour[i];
+        const q = cleaned[cleaned.length - 1];
+        if (Math.hypot(p[0] - q[0], p[1] - q[1]) > 1e-6) cleaned.push(p);
+      }
+
+      if (cleaned.length >= 4) contours.push(cleaned);
+    }
+  }
+
+  return contours;
+}
+
+function computeContoursForParams(params, algo = 'B') {
   const polyRes = computePolysForParams(params);
   if (!polyRes || !polyRes.polys || !polyRes.polys.length) return null;
 
-  const contours = buildLaserContoursExact(polyRes.polys);
+    const contours = (algo === 'B') ? buildLaserContoursExact_B(polyRes.polys)
+                : buildLaserContoursExact(polyRes.polys);
   if (!contours || !contours.length) return null;
 
   // Külső kontúr: legnagyobb abszolút területű hurok.
@@ -1133,9 +1733,9 @@ function computeContoursForParams(params) {
  * Kontúrok számítása PEHELY-kódból.
  * Régi (lefutás nélküli) kódoknál automatikusan Oo. lesz a lefutás.
  */
-function computeContoursForCode(codeString) {
+function computeContoursForCode(codeString, algo = 'B') {
   const params = paramsFromCode(codeString);
-  return computeContoursForParams(params);
+    return computeContoursForParams(params, algo);
 }
 
 
@@ -1323,6 +1923,10 @@ function computeContoursForCode(codeString) {
 
   PehelyCore.scalePolygon = scalePolygon;
   PehelyCore.paramsFromCode = paramsFromCode;
+
+  PehelyCore.getCodeFormatVersion = getCodeFormatVersion;
+  PehelyCore.upgradeCodeToCurrent = upgradeCodeToCurrent;
+
   PehelyCore.buildCodeFromParams = buildCodeFromParams;
   PehelyCore.buildSingleTreeSegments = buildSingleTreeSegments;
   PehelyCore.buildSnowflakeSegments = buildSnowflakeSegments;
@@ -1330,7 +1934,276 @@ function computeContoursForCode(codeString) {
   PehelyCore.buildTentHexFromEdge = buildTentHexFromEdge;
   PehelyCore.buildTrapHexFromEdge = buildTrapHexFromEdge;
   PehelyCore.buildRegularHexFromEdge = buildRegularHexFromEdge;
-  PehelyCore.segmentToPolys = segmentToPolys;
+function addJpegCommentToArrayBuffer(arrayBuffer, comment) {
+    const bytes = new Uint8Array(arrayBuffer);
+    if (bytes.length < 4 || bytes[0] !== 0xFF || bytes[1] !== 0xD8) {
+      return new Blob([bytes], { type: 'image/jpeg' });
+    }
+    const encoder = new TextEncoder();
+    const commentBytes = encoder.encode(comment);
+    const len = commentBytes.length + 2;
+
+    const newBytes = new Uint8Array(bytes.length + commentBytes.length + 4);
+    let offset = 0;
+
+    newBytes[offset++] = 0xFF;
+    newBytes[offset++] = 0xD8;
+
+    newBytes[offset++] = 0xFF;
+    newBytes[offset++] = 0xFE;
+    newBytes[offset++] = (len >> 8) & 0xFF;
+    newBytes[offset++] = len & 0xFF;
+
+    newBytes.set(commentBytes, offset);
+    offset += commentBytes.length;
+
+    newBytes.set(bytes.subarray(2), offset);
+
+    return new Blob([newBytes], { type: 'image/jpeg' });
+  }
+
+
+  // Blob -> ArrayBuffer (a JPG komment beágyazáshoz).
+  // Korábbi verziókban ez a helper még a HTML-ben volt; a core-ba is kell.
+  async function blobToArrayBuffer(blob) {
+    if (!blob) throw new Error('blobToArrayBuffer: blob null');
+    if (typeof blob.arrayBuffer === 'function') return await blob.arrayBuffer();
+    // Fallback régebbi böngészőkre
+    return await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error || new Error('FileReader error'));
+      reader.readAsArrayBuffer(blob);
+    });
+  }
+
+function createJpegBlobForCode(code, paramsOrTheme = null) {
+    /**
+     * JPEG előnézetet készít egy PEHELY kódhoz.
+     *
+     * 2. paraméter (paramsOrTheme) jelentése:
+     *  - string: téma / színvilág: 'blue' (alapértelmezett) vagy 'bordo'
+     *  - object: paraméter-felülbírálás (Generator exportnál használjuk)
+     *  - object { params: {...}, theme: 'bordo' }: opcionális, későbbi bővíthetőség
+     *
+     * Fontos: a HAVAZO a "csak kártyán szereplő" (nincs JPG) előnézetekhez
+     * 'bordo' témát kér; a meglévő (betöltött/mentett) JPG-k a 'blue' témát használják.
+     */
+    let theme = 'blue';
+    let paramsOverride = null;
+
+    if (typeof paramsOrTheme === 'string') {
+      theme = paramsOrTheme;
+    } else if (paramsOrTheme && typeof paramsOrTheme === 'object') {
+      if (paramsOrTheme.params && typeof paramsOrTheme.params === 'object') {
+        paramsOverride = paramsOrTheme.params;
+        if (typeof paramsOrTheme.theme === 'string') theme = paramsOrTheme.theme;
+      } else {
+        // közvetlen paraméter-objektum
+        paramsOverride = paramsOrTheme;
+      }
+    }
+
+    const params = paramsOverride || paramsFromCode(code);
+    const polyData = computePolysForParams(params);
+    if (!polyData) return Promise.resolve(null);
+    const { polys, minX, maxX, minY, maxY } = polyData;
+
+    // Színpaletta – a felhasználói minták alapján
+    const palette = (theme === 'bordo')
+      ? { bg: '#5e0700', fg: '#fbeed2', text: '#fbeed2' }
+      : { bg: '#001633', fg: '#bfe9ff', text: '#ffffff' };
+
+    const canvas = document.createElement('canvas');
+    canvas.width  = 600;
+    canvas.height = 640;
+    const ctx = canvas.getContext('2d');
+
+    // háttér
+    ctx.fillStyle = palette.bg;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const width  = maxX - minX || 1;
+    const height = maxY - minY || 1;
+
+    const marginX   = 40;
+    const topMargin = 40;
+    const textSpace = 70;
+    const drawWidth  = canvas.width - 2 * marginX;
+    const drawHeight = canvas.height - topMargin - textSpace;
+
+    const scale  = 0.95 * Math.min(drawWidth / width, drawHeight / height);
+    const cx     = (minX + maxX) / 2;
+    const cy     = (minY + maxY) / 2;
+    const originX = canvas.width / 2;
+    const originY = topMargin + drawHeight / 2;
+
+    ctx.lineJoin    = 'round';
+    ctx.lineCap     = 'round';
+    ctx.lineWidth   = 1.2;
+    ctx.fillStyle   = palette.fg;
+    ctx.strokeStyle = palette.fg;
+
+    for (const poly of polys) {
+      if (!poly || poly.length < 2) continue;
+      ctx.beginPath();
+      for (let i = 0; i < poly.length; i++) {
+        const x = poly[i][0];
+        const y = poly[i][1];
+        const sx = originX + (x - cx) * scale;
+        const sy = originY - (y - cy) * scale;
+        if (i === 0) ctx.moveTo(sx, sy);
+        else ctx.lineTo(sx, sy);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    // kód felirat alul
+    ctx.fillStyle = palette.text;
+    ctx.font = '16px system-ui, -apple-system, BlinkMacSystemFont,"Segoe UI",sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(code, canvas.width / 2, canvas.height - textSpace / 2);
+
+    return new Promise((resolve) => {
+      canvas.toBlob(async (blob) => {
+        if (!blob) {
+          resolve(null);
+          return;
+        }
+        try {
+          const arr = await blobToArrayBuffer(blob);
+          const currentCode = buildCodeFromParams(params);
+          const commentedBlob = addJpegCommentToArrayBuffer(arr, 'PEHELY-' + currentCode);
+          resolve(commentedBlob);
+        } catch (e) {
+          console.error('JPG komment beágyazási hiba:', e);
+          resolve(blob);
+        }
+      }, 'image/jpeg', 0.92);
+    });
+  }
+
+
+  function listPehelyCodesFromJpegArrayBuffer(arrayBuffer) {
+    const bytes = new Uint8Array(arrayBuffer);
+    if (bytes.length < 4 || bytes[0] !== 0xFF || bytes[1] !== 0xD8) return [];
+    const out = [];
+    let i = 2;
+    while (i + 4 <= bytes.length) {
+      if (bytes[i] !== 0xFF) { i++; continue; }
+      const marker = bytes[i + 1];
+      if (marker === 0xD9 || marker === 0xDA) break; // EOI / SOS
+      const len = (bytes[i + 2] << 8) | bytes[i + 3];
+      if (len < 2 || i + 2 + len > bytes.length) break;
+
+      if (marker === 0xFE) { // COM
+        const start = i + 4;
+        const end   = i + 2 + len;
+        const comBytes = bytes.subarray(start, end);
+        const decoder  = new TextDecoder('utf-8');
+        const text     = decoder.decode(comBytes);
+        const idx      = text.indexOf('PEHELY-');
+        if (idx !== -1) {
+          const code = text.substring(idx + 7).trim();
+          if (code) out.push(code);
+        }
+      }
+      i += 2 + len;
+    }
+    return out;
+  }
+
+  function parseCodeFromJpegArrayBuffer(arrayBuffer) {
+    const codes = listPehelyCodesFromJpegArrayBuffer(arrayBuffer);
+    return codes.length ? codes[codes.length - 1] : null; // legutolsó a legfrissebb
+  }
+
+  function replacePehelyCodeInJpegArrayBuffer(arrayBuffer, codeString) {
+    const bytes = new Uint8Array(arrayBuffer);
+    if (bytes.length < 4 || bytes[0] !== 0xFF || bytes[1] !== 0xD8) {
+      // nem JPEG: egyszerűen visszaadjuk az eredetit
+      return new Blob([bytes], { type: 'image/jpeg' });
+    }
+
+    // 1) PEHELY kommentek kiszűrése (SOS előtt)
+    const kept = [];
+    kept.push(0xFF, 0xD8);
+    let i = 2;
+    while (i + 4 <= bytes.length) {
+      if (bytes[i] !== 0xFF) { break; }
+      const marker = bytes[i + 1];
+
+      if (marker === 0xDA) { // SOS: innentől adatfolyam, másoljuk a maradékot
+        kept.push(...bytes.subarray(i));
+        i = bytes.length;
+        break;
+      }
+      if (marker === 0xD9) { // EOI
+        kept.push(0xFF, 0xD9);
+        i += 2;
+        break;
+      }
+
+      const len = (bytes[i + 2] << 8) | bytes[i + 3];
+      if (len < 2 || i + 2 + len > bytes.length) {
+        // hibás szegmens – inkább az egészet hagyjuk érintetlenül
+        return new Blob([bytes], { type: 'image/jpeg' });
+      }
+
+      const segStart = i;
+      const segEnd = i + 2 + len;
+
+      if (marker === 0xFE) { // COM
+        const start = i + 4;
+        const end   = segEnd;
+        const comBytes = bytes.subarray(start, end);
+        const decoder  = new TextDecoder('utf-8');
+        const text     = decoder.decode(comBytes);
+        if (text.indexOf('PEHELY-') !== -1) {
+          // dobjuk
+          i = segEnd;
+          continue;
+        }
+      }
+
+      kept.push(...bytes.subarray(segStart, segEnd));
+      i = segEnd;
+    }
+    if (i < bytes.length) {
+      // ha valamiért nem másoltuk a végét
+      kept.push(...bytes.subarray(i));
+    }
+
+    // 2) Új PEHELY komment beszúrása SOI után
+    const encoder = new TextEncoder();
+    const commentBytes = encoder.encode('PEHELY-' + codeString);
+    const len = commentBytes.length + 2;
+
+    const keptBytes = new Uint8Array(kept);
+    const newBytes = new Uint8Array(keptBytes.length + commentBytes.length + 4);
+    let o = 0;
+
+    // SOI
+    newBytes[o++] = 0xFF;
+    newBytes[o++] = 0xD8;
+
+    // COM
+    newBytes[o++] = 0xFF;
+    newBytes[o++] = 0xFE;
+    newBytes[o++] = (len >> 8) & 0xFF;
+    newBytes[o++] = len & 0xFF;
+    newBytes.set(commentBytes, o);
+    o += commentBytes.length;
+
+    // rest (SOI után)
+    newBytes.set(keptBytes.subarray(2), o);
+
+    return new Blob([newBytes], { type: 'image/jpeg' });
+  }
+PehelyCore.segmentToPolys = segmentToPolys;
   PehelyCore.computePolysForParams = computePolysForParams;
   PehelyCore.computePolysForCode = computePolysForCode;
   PehelyCore.buildLaserContoursExact = buildLaserContoursExact;
@@ -1341,6 +2214,10 @@ function computeContoursForCode(codeString) {
   PehelyCore.blobToArrayBuffer = blobToArrayBuffer;
   PehelyCore.createJpegBlobForCode = createJpegBlobForCode;
   PehelyCore.parseCodeFromJpegArrayBuffer = parseCodeFromJpegArrayBuffer;
+
+  PehelyCore.listPehelyCodesFromJpegArrayBuffer = listPehelyCodesFromJpegArrayBuffer;
+  PehelyCore.replacePehelyCodeInJpegArrayBuffer = replacePehelyCodeInJpegArrayBuffer;
+  
 
   global.PehelyCore = PehelyCore;
 })(typeof window !== 'undefined' ? window : globalThis);

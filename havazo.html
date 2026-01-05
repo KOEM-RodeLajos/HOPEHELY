@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Rodé Lajos - HAVAZO v75</title>
+  <title>Rodé Lajos - HAVAZO</title>
   <style>
     * {
       box-sizing: border-box;
@@ -282,11 +282,25 @@
       }
     }
     /* Kártya státusz: a JPG megléte a bélyegképen látszik (kék vs bordó), a keret semleges. */
+
+    .algo-row textarea {
+      width: 100%;
+      resize: vertical;
+      min-height: 44px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 12px;
+      padding: 6px 8px;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.14);
+      background: rgba(0,0,0,0.18);
+      color: rgba(255,255,255,0.92);
+      box-sizing: border-box;
+    }
 </style>
 </head>
 <body>
 <div class="page">
-  <h1>Rodé Lajos - HAVAZO <span id="appVersion" class="version">v75</span></h1>
+  <h1>Rodé Lajos - HAVAZO <span id="appVersion" class="version">v?</span></h1>
 
   <div class="top-bar">
     <div class="folder-info">
@@ -348,6 +362,22 @@
           <input id="shapeGapInput" type="number" min="0" step="0.1" value="2">
           mm
         </label>
+      
+        <label>
+          DXF alg.:
+          <select id="dxfAlgoSelect">
+            <option value="all">MIND</option>
+            <option value="A">A</option>
+            <option value="B" selected>B</option>
+          </select>
+        </label>
+</div>
+
+      <div class="algo-row">
+        <label style="width:100%;">
+          Algoritmus összefoglaló:
+          <textarea id="dxfAlgoDesc" rows="2" readonly></textarea>
+        </label>
       </div>
 
       <div class="action-row">
@@ -359,6 +389,7 @@
           <span>db</span>
         </div>
         <button id="bulkApplyBtn" class="secondary">mind</button>
+        <button id="testBtn" class="secondary">TESZT</button>
         <button id="saveAllBtn" class="primary">MENTÉS</button>
       </div>
       <div id="saveProgressArea" style="display:none; align-items:center; gap:0.5rem; margin-top:0.5rem;">
@@ -388,7 +419,7 @@
   // ====== PehelyCore (közös algoritmus modul) ======
   const PC = window.PehelyCore;
   if (!PC) {
-    alert('Hiányzik a PehelyCore (pehely-core.js). Tedd a HTML-ek mellé ugyanabba a mappába. Ha csak verziószámos (pl. pehely-core_v71.js) van, nevezd át pehely-core.js-re.');
+    alert('Hiányzik a PehelyCore (pehely-core.js). Tedd a HTML-ek mellé ugyanabba a mappába. Ha csak verziószámos (pl. pehely-core_v80.js) van, nevezd át pehely-core.js-re.');
     throw new Error('PehelyCore hiányzik');
   }
   const {
@@ -517,7 +548,7 @@
 
   // ====== PEHELY-kód kezelése + geometria (kompatibilis a generátorral) ======
 
-  const DXF_TARGET_SIZE = 100.0; // mm
+  const DXF_TARGET_SIZE = PC.DXF_TARGET_SIZE; // mm (core-ból)
   const geometryCache = new Map(); // code -> { contoursWithFlags }
 
   // [KISZERVEZVE pehely-core.js-be] paramsFromCode
@@ -553,13 +584,13 @@
   // [KISZERVEZVE pehely-core.js-be] buildLaserContoursExact
 
 
-  function computeContoursForCode(codeString, paramsOverride = null) {
+  function computeContoursForCode(codeString, algo = 'A', paramsOverride = null) {
     const params = paramsOverride || paramsFromCode(codeString);
     const runoffKey = (params && params.runoff) ? params.runoff : 'Oo.';
-    const cacheKey = `${codeString}|RUNOFF:${runoffKey}`;
+        const cacheKey = `${algo}|${codeString}|RUNOFF:${runoffKey}`;
     if (geometryCache.has(cacheKey)) return geometryCache.get(cacheKey);
 
-    const result = computeContoursForParams(params);
+        const result = computeContoursForParams(params, algo);
     geometryCache.set(cacheKey, result);
     return result;
   }
@@ -579,12 +610,16 @@
   async function readCodeFromJpegFileHandle(fileHandle) {
     const file = await fileHandle.getFile();
     const arrayBuffer = await file.arrayBuffer();
-    return parseCodeFromJpegArrayBuffer(arrayBuffer);
+    const raw = parseCodeFromJpegArrayBuffer(arrayBuffer);
+    if (!raw) return null;
+    return PC.upgradeCodeToCurrent(raw);
   }
   async function readCodeFromJpegFile(file) {
     try {
       const arrayBuffer = await file.arrayBuffer();
-      return parseCodeFromJpegArrayBuffer(arrayBuffer);
+      const raw = parseCodeFromJpegArrayBuffer(arrayBuffer);
+      if (!raw) return null;
+      return PC.upgradeCodeToCurrent(raw);
     } catch (e) {
       console.warn('Nem sikerült a JPG beolvasása:', e);
       return null;
@@ -650,7 +685,7 @@
     if (!display.trim() && raw) {
       display = raw.replace(/^\s*PEHELY-?/i, '').trim();
     }
-    // v75: a kód csak a képbe égetve jelenik meg (previewCode rejtve)
+    // v79: a kód csak a képbe égetve jelenik meg (previewCode rejtve)
     previewCodeEl.textContent = '';
     previewOverlay.classList.add('active');
   }
@@ -830,14 +865,15 @@ function refreshCardsGrid() {
     // Régi lista alapján hiányzók virtuális generálása (ugyanúgy, mint mappánál)
     const codesInJson = Array.from(quantitiesFromJson.keys());
     for (const code of codesInJson) {
-      if (!itemsByCode.has(code)) {
+      const upgradedCode = (() => { try { return PC.upgradeCodeToCurrent(code); } catch { return code; } })();
+      if (!itemsByCode.has(upgradedCode)) {
         try {
-          const blob = await createJpegBlobForCode(code, 'bordo');
+          const blob = await createJpegBlobForCode(upgradedCode, 'bordo');
           if (!blob) continue;
           const url = URL.createObjectURL(blob);
-          const qty = quantitiesFromJson.get(code) || 0;
+          const qty = quantitiesFromJson.get(upgradedCode) || 0;
           const item = {
-            code,
+            code: upgradedCode,
             fileHandle: null,
             fileName: null,
             imgURL: url,
@@ -891,7 +927,13 @@ async function scanSources() {
       for (const it of data.items) {
         if (!it || typeof it.code !== 'string') continue;
         const count = Number.isFinite(it.count) ? it.count : 0;
-        quantitiesFromJson.set(it.code, count);
+        try {
+          const upgraded = PC.upgradeCodeToCurrent(it.code);
+          quantitiesFromJson.set(upgraded, count);
+        } catch (e) {
+          // ha teljesen rossz kód lenne, tartsuk meg eredetiben
+          quantitiesFromJson.set(it.code, count);
+        }
       }
     }
   }
@@ -970,7 +1012,7 @@ async function scanCurrentFolder() {
           const qty = quantitiesFromJson.has(code) ? quantitiesFromJson.get(code) : 1;
 
           const item = {
-            code,
+            code: upgradedCode,
             fileHandle: entry,
             imgURL: url,
             quantity: qty,
@@ -993,7 +1035,7 @@ async function scanCurrentFolder() {
           if (!blob) continue;
           const url = URL.createObjectURL(blob);
           const item = {
-            code,
+            code: upgradedCode,
             fileHandle: null,
             imgURL: url,
             quantity: qty,
@@ -1205,466 +1247,363 @@ async function scanCurrentFolder() {
     // ====== Mentés folyamatjelző ======
     const nonZeroCodes = codesWithCounts.filter(x => x.count > 0).length;
 
-    const progressMax = Math.max(1, totalCount);
+    const algoSel = (document.getElementById('dxfAlgoSelect')?.value || 'B');
+    const algoList = (algoSel === 'all') ? ['A','B'] : [algoSel];
+
+    const progressMax = Math.max(1, totalCount * algoList.length);
     let instanceDone = 0;
     let geomDone = 0;
 
     showSaveProgress(0, progressMax, (totalCount > 0 ? 'Előkészítés…' : 'JSON mentés…'));
     await saveUiTick();
 
-    const flakeData = [];
-    let maxWidth = 0;
-    let maxHeight = 0;
+    const now = new Date();
+    const baseName = 'HAVAZO_' + formatTimestampForName(now);
 
-    for (const { code, count } of codesWithCounts) {
-      if (count <= 0) continue;
-      const geom = computeContoursForCode(code);
-      if (!geom || !geom.contoursWithFlags.length) continue;
+    for (const algo of algoList) {
+        const flakeData = [];
+        let maxWidth = 0;
+        let maxHeight = 0;
 
-      const contours = geom.contoursWithFlags;
-      let minX = Infinity, maxX = -Infinity;
-      let minY = Infinity, maxY = -Infinity;
-      for (const c of contours) {
-        const unique = c.points.slice(0, c.points.length - 1);
-        for (const [x,y] of unique) {
-          if (x < minX) minX = x;
-          if (x > maxX) maxX = x;
-          if (y < minY) minY = y;
-          if (y > maxY) maxY = y;
-        }
-      }
-      const width  = maxX - minX;
-      const height = maxY - minY;
-      maxWidth  = Math.max(maxWidth, width);
-      maxHeight = Math.max(maxHeight, height);
+        geomDone = 0; // algoritmusonként újraszámoljuk
 
-      flakeData.push({ code, count, contours, minX, maxX, minY, maxY, width, height });
-      geomDone++;
-      setSaveProgress(instanceDone, progressMax, `Geometria számítás… ${geomDone}/${nonZeroCodes}`);
-      await saveUiTick();
-    }
+        for (const { code, count } of codesWithCounts) {
+          if (count <= 0) continue;
+          const geom = computeContoursForCode(code, algo);
+          if (!geom || !geom.contoursWithFlags.length) continue;
 
-    let dxfString = '';
-    if (totalCount > 0 && flakeData.length > 0) {
-      const layoutMode = (document.getElementById('layoutModeSelect')?.value || 'grid');
-      let sheetW = parseFloat(document.getElementById('sheetWidthInput')?.value ?? '600');
-      let sheetH = parseFloat(document.getElementById('sheetHeightInput')?.value ?? '400');
-      let clearance = parseFloat(document.getElementById('shapeGapInput')?.value ?? '2');
-
-      if (!Number.isFinite(sheetW) || sheetW <= 0) sheetW = 600;
-      if (!Number.isFinite(sheetH) || sheetH <= 0) sheetH = 400;
-      if (!Number.isFinite(clearance) || clearance < 0) clearance = 2;
-
-      // A "Köz" a tényleges biztonsági távolság két alakzat közt.
-      // Ehhez oldalanként pad = clearance/2 margót számolunk a pakolásnál.
-      const pad = clearance / 2;
-      const SHEET_SPACING = 100.0; // mm, két kirakási terület közt
-
-      const NL = '\r\n';
-      function add(code, value) {
-        dxfString += code + NL + value + NL;
-      }
-
-      // Blokk név: a PEHELY-kód DXF-kompatibilis változata (core-ban egységesítve)
-      const blockNameForCode = (code) => PehelyCore.blockNameFromCode(code);
-
-      add(0, 'SECTION');
-      add(2, 'HEADER');
-      add(0, 'ENDSEC');
-
-      // ===== TABLES: minimálisan, hogy a "keret" fólia/layer biztosan látszódjon =====
-      add(0, 'SECTION');
-      add(2, 'TABLES');
-
-      // LTYPE: CONTINUOUS
-      add(0, 'TABLE');
-      add(2, 'LTYPE');
-      add(70, 1);
-      add(0, 'LTYPE');
-      add(2, 'CONTINUOUS');
-      add(70, 0);
-      add(3, 'Solid line');
-      add(72, 65);
-      add(73, 0);
-      add(40, 0.0);
-      add(0, 'ENDTAB');
-
-      // LAYER: 0 + Keret + Furat + kontúrok
-      add(0, 'TABLE');
-      add(2, 'LAYER');
-      add(70, 5);
-
-      add(0, 'LAYER');
-      add(2, '0');
-      add(70, 0);
-      add(62, 7);
-      add(6, 'CONTINUOUS');
-
-      add(0, 'LAYER');
-      add(2, 'Kulso_kontur');
-      add(70, 0);
-      add(62, 7);
-      add(6, 'CONTINUOUS');
-
-      add(0, 'LAYER');
-      add(2, 'Belso_kontur');
-      add(70, 0);
-      add(62, 5);
-      add(6, 'CONTINUOUS');
-
-      add(0, 'LAYER');
-      add(2, 'Keret');
-      add(70, 0);
-      add(62, 3);
-      add(6, 'CONTINUOUS');
-
-      add(0, 'LAYER');
-      add(2, 'Furat');
-      add(70, 0);
-      add(62, 1);
-      add(6, 'CONTINUOUS');
-
-      add(0, 'ENDTAB');
-      add(0, 'ENDSEC');
-
-      // ===== BLOCKS: minden hópehely külön BLOCK, (0,0)-ba központosítva =====
-      add(0, 'SECTION');
-      add(2, 'BLOCKS');
-
-      const blockNames = new Map(); // code -> blockName
-      for (const flake of flakeData) {
-        const blockName = blockNameForCode(flake.code);
-        blockNames.set(flake.code, blockName);
-
-        const cx = (flake.minX + flake.maxX) / 2;
-        const cy = (flake.minY + flake.maxY) / 2;
-
-
-        const _pHole = PehelyCore.paramsFromCode(flake.code);
-        const hole = PehelyCore.computeHangingHole(flake.contours, _pHole.minRectMm);
-
-        add(0, 'BLOCK');
-        add(8, '0');
-        add(2, blockName);
-        add(70, 0);
-        add(10, 0); add(20, 0); add(30, 0);
-        add(3, blockName);
-        add(1, '');
-
-        for (const c of flake.contours) {
-          const unique = c.points.slice(0, c.points.length - 1);
-          if (unique.length < 3) continue;
-
-          add(0, 'LWPOLYLINE');
-          add(8, c.isOuter ? 'Kulso_kontur' : 'Belso_kontur');
-          add(62, c.isOuter ? 7 : 5);
-          add(90, unique.length);
-          add(70, 1); // zárt
-
-          for (const [x, y] of unique) {
-            add(10, (x - cx).toFixed(4));
-            add(20, (y - cy).toFixed(4));
-          }
-        }
-
-        
-        // Furat (kör) a hópehely blokk részeként
-        add(0, 'CIRCLE');
-        add(8, 'Furat');
-        add(10, (hole.x - cx).toFixed(4));
-        add(20, (hole.y - cy).toFixed(4));
-        add(30, 0);
-        add(40, Number(hole.radius).toFixed(4));
-
-        add(0, 'ENDBLK');
-      }
-
-      add(0, 'ENDSEC');
-
-      // ===== ENTITIES: INSERT-ek (Rács / Polc), a kirakás bal-felső sarokból indul =====
-      add(0, 'SECTION');
-      add(2, 'ENTITIES');
-
-      const placements = []; // { blockName, x, y, sheetIndex }
-      let maxSheetIndex = 0;
-
-            if (layoutMode === 'circle') {
-        // Kör (circle) pakolás: befoglaló körök, hex-szerű elrendezés, átmérő szerint rendezve
-        const circleTypes = [...flakeData].map(f => {
-          const cx = (f.minX + f.maxX) / 2;
-          const cy = (f.minY + f.maxY) / 2;
-          let maxR = 0;
-          for (const c of f.contours) {
-            if (!c.isOuter) continue;
-            const pts = c.points.slice(0, c.points.length - 1);
-            for (const [x, y] of pts) {
-              const d = Math.hypot(x - cx, y - cy);
-              if (d > maxR) maxR = d;
+          const contours = geom.contoursWithFlags;
+          let minX = Infinity, maxX = -Infinity;
+          let minY = Infinity, maxY = -Infinity;
+          for (const c of contours) {
+            const unique = c.points.slice(0, c.points.length - 1);
+            for (const [x,y] of unique) {
+              if (x < minX) minX = x;
+              if (x > maxX) maxX = x;
+              if (y < minY) minY = y;
+              if (y > maxY) maxY = y;
             }
           }
-          // Biztonsági fallback, ha valamiért nincs külső kontúr jelölve
-          if (!(maxR > 0)) maxR = 0.5 * Math.max(f.width, f.height);
-          const rEff = maxR + pad; // külső sugár + köz/2
-          return { code: f.code, count: f.count, r: rEff, d: 2 * rEff };
-        }).sort((a, b) => b.d - a.d);
+          const width  = maxX - minX;
+          const height = maxY - minY;
+          maxWidth  = Math.max(maxWidth, width);
+          maxHeight = Math.max(maxHeight, height);
 
-        const SQRT3_OVER_2 = Math.sqrt(3) / 2;
-
-        let tIdx = 0;
-        let tRep = 0;
-        let _current = null;
-
-        function peekCircle() {
-          if (_current) return _current;
-          while (tIdx < circleTypes.length) {
-            const t = circleTypes[tIdx];
-            if (tRep < t.count) {
-              _current = { code: t.code, r: t.r };
-              return _current;
-            }
-            tIdx++;
-            tRep = 0;
-          }
-          return null;
+          flakeData.push({ code, count, contours, minX, maxX, minY, maxY, width, height });
+          geomDone++;
+          setSaveProgress(instanceDone, progressMax, `Geometria számítás… ${geomDone}/${nonZeroCodes}`);
+          await saveUiTick();
         }
 
-        function takeCircle() {
-          const c = peekCircle();
-          if (!c) return null;
-          _current = null;
-          tRep++;
-          return c;
-        }
+        let dxfString = '';
+        if (totalCount > 0 && flakeData.length > 0) {
+          const layoutMode = (document.getElementById('layoutModeSelect')?.value || 'grid');
+          let sheetW = parseFloat(document.getElementById('sheetWidthInput')?.value ?? '600');
+          let sheetH = parseFloat(document.getElementById('sheetHeightInput')?.value ?? '400');
+          let clearance = parseFloat(document.getElementById('shapeGapInput')?.value ?? '2');
 
-        let sheetIndex = 0;
-        let rowIndex = 0;
-        let placedCircles = []; // aktuális kirakási területre: { x, y, r }
-        let lastRowY = 0;
-        let lastRowMaxR = 0;
+          if (!Number.isFinite(sheetW) || sheetW <= 0) sheetW = 600;
+          if (!Number.isFinite(sheetH) || sheetH <= 0) sheetH = 400;
+          if (!Number.isFinite(clearance) || clearance < 0) clearance = 2;
 
-        function resetForNewSheet() {
-          sheetIndex++;
-          rowIndex = 0;
-          placedCircles = [];
-          lastRowY = 0;
-          lastRowMaxR = 0;
-        }
+          // A "Köz" a tényleges biztonsági távolság két alakzat közt.
+          // Ehhez oldalanként pad = clearance/2 margót számolunk a pakolásnál.
+          const pad = clearance / 2;
+          const SHEET_SPACING = 100.0; // mm, két kirakási terület közt
 
-        while (true) {
-          const firstPeek = peekCircle();
-          if (!firstPeek) break;
+          // Blokk név: a PEHELY-kód DXF-kompatibilis változata (core-ban egységesítve)
+          const blockNameForCode = (code) => (algo + '_' + PC.blockNameFromCode(code));
 
-          // Új sor felépítése (balról jobbra), az első (legnagyobb maradék) kör sugara meghatározza a sor eltolását
-          const rowMaxR = firstPeek.r;
-          const rowOffset = (rowIndex % 2) * rowMaxR; // hex eltolás
-          let x = rowMaxR + rowOffset;
+          // BLOCK-ok előkészítése: a core generálja a DXF-ben a kontúrokat + felfüggesztő furatot.
+          const blocks = [];
+          const blockNames = new Map(); // code -> blockName
+          for (const flake of flakeData) {
+            const blockName = blockNameForCode(flake.code);
+            blockNames.set(flake.code, blockName);
 
-          const row = []; // { code, r, x }
-          const first = takeCircle();
-          row.push({ code: first.code, r: first.r, x });
-          let prevR = first.r;
+            const cx = (flake.minX + flake.maxX) / 2;
+            const cy = (flake.minY + flake.maxY) / 2;
+            const pHole = PC.paramsFromCode(flake.code);
 
-          while (true) {
-            const nxt = peekCircle();
-            if (!nxt) break;
-            const nx = x + prevR + nxt.r;
-            if (nx + nxt.r > sheetW) break; // nem fér a sorba
-            x = nx;
-            const c = takeCircle();
-            row.push({ code: c.code, r: c.r, x });
-            prevR = c.r;
+            blocks.push({
+              blockName,
+              contoursWithFlags: flake.contours,
+              centerX: cx,
+              centerY: cy,
+              minRectMm: pHole.minRectMm,
+              includeHole: true
+            });
           }
 
-          // Sor Y pozíció (hex-szerűen): induló tipp + ütközésmentes lejjebb tolás
-          let y = rowMaxR;
-          if (placedCircles.length > 0) {
-            y = lastRowY + SQRT3_OVER_2 * (lastRowMaxR + rowMaxR);
+          const placements = []; // { blockName, x, y, sheetIndex }
+          let maxSheetIndex = 0;
 
-            // Biztosítsuk, hogy egyetlen kör se lógjon rá a már elhelyezettekre (konzervatív, de stabil)
-            for (const rc of row) {
-              for (const pc of placedCircles) {
-                const dx = Math.abs(rc.x - pc.x);
-                const rsum = rc.r + pc.r;
-                if (dx < rsum) {
-                  const needY = pc.y + Math.sqrt((rsum * rsum) - (dx * dx));
-                  if (needY > y) y = needY;
+                if (layoutMode === 'circle') {
+            // Kör (circle) pakolás: befoglaló körök, hex-szerű elrendezés, átmérő szerint rendezve
+            const circleTypes = [...flakeData].map(f => {
+              const cx = (f.minX + f.maxX) / 2;
+              const cy = (f.minY + f.maxY) / 2;
+              let maxR = 0;
+              for (const c of f.contours) {
+                if (!c.isOuter) continue;
+                const pts = c.points.slice(0, c.points.length - 1);
+                for (const [x, y] of pts) {
+                  const d = Math.hypot(x - cx, y - cy);
+                  if (d > maxR) maxR = d;
                 }
+              }
+              // Biztonsági fallback, ha valamiért nincs külső kontúr jelölve
+              if (!(maxR > 0)) maxR = 0.5 * Math.max(f.width, f.height);
+              const rEff = maxR + pad; // külső sugár + köz/2
+              return { code: f.code, count: f.count, r: rEff, d: 2 * rEff };
+            }).sort((a, b) => b.d - a.d);
+
+            const SQRT3_OVER_2 = Math.sqrt(3) / 2;
+
+            let tIdx = 0;
+            let tRep = 0;
+            let _current = null;
+
+            function peekCircle() {
+              if (_current) return _current;
+              while (tIdx < circleTypes.length) {
+                const t = circleTypes[tIdx];
+                if (tRep < t.count) {
+                  _current = { code: t.code, r: t.r };
+                  return _current;
+                }
+                tIdx++;
+                tRep = 0;
+              }
+              return null;
+            }
+
+            function takeCircle() {
+              const c = peekCircle();
+              if (!c) return null;
+              _current = null;
+              tRep++;
+              return c;
+            }
+
+            let sheetIndex = 0;
+            let rowIndex = 0;
+            let placedCircles = []; // aktuális kirakási területre: { x, y, r }
+            let lastRowY = 0;
+            let lastRowMaxR = 0;
+
+            function resetForNewSheet() {
+              sheetIndex++;
+              rowIndex = 0;
+              placedCircles = [];
+              lastRowY = 0;
+              lastRowMaxR = 0;
+            }
+
+            while (true) {
+              const firstPeek = peekCircle();
+              if (!firstPeek) break;
+
+              // Új sor felépítése (balról jobbra), az első (legnagyobb maradék) kör sugara meghatározza a sor eltolását
+              const rowMaxR = firstPeek.r;
+              const rowOffset = (rowIndex % 2) * rowMaxR; // hex eltolás
+              let x = rowMaxR + rowOffset;
+
+              const row = []; // { code, r, x }
+              const first = takeCircle();
+              row.push({ code: first.code, r: first.r, x });
+              let prevR = first.r;
+
+              while (true) {
+                const nxt = peekCircle();
+                if (!nxt) break;
+                const nx = x + prevR + nxt.r;
+                if (nx + nxt.r > sheetW) break; // nem fér a sorba
+                x = nx;
+                const c = takeCircle();
+                row.push({ code: c.code, r: c.r, x });
+                prevR = c.r;
+              }
+
+              // Sor Y pozíció (hex-szerűen): induló tipp + ütközésmentes lejjebb tolás
+              let y = rowMaxR;
+              if (placedCircles.length > 0) {
+                y = lastRowY + SQRT3_OVER_2 * (lastRowMaxR + rowMaxR);
+
+                // Biztosítsuk, hogy egyetlen kör se lógjon rá a már elhelyezettekre (konzervatív, de stabil)
+                for (const rc of row) {
+                  for (const pc of placedCircles) {
+                    const dx = Math.abs(rc.x - pc.x);
+                    const rsum = rc.r + pc.r;
+                    if (dx < rsum) {
+                      const needY = pc.y + Math.sqrt((rsum * rsum) - (dx * dx));
+                      if (needY > y) y = needY;
+                    }
+                  }
+                }
+              }
+
+              // Ha nem férne bele a kirakási terület magasságába, új területet kezdünk (100mm hézaggal lejjebb)
+              if (y + rowMaxR > sheetH && placedCircles.length > 0) {
+                resetForNewSheet();
+
+                // Új területen a sor bal-felsőből indul újra (eltolás nélküli első sor)
+                rowIndex = 0;
+                let rx = rowMaxR;
+                row[0].x = rx;
+                let pr = row[0].r;
+                for (let i = 1; i < row.length; i++) {
+                  rx = rx + pr + row[i].r;
+                  row[i].x = rx;
+                  pr = row[i].r;
+                }
+                y = rowMaxR;
+              }
+
+              const sheetOffset = sheetIndex * (sheetH + SHEET_SPACING);
+
+              for (const rc of row) {
+                const blockName = blockNames.get(rc.code);
+                const insX = rc.x;
+                const insY = -(sheetOffset + y);
+
+                placements.push({ blockName, x: insX, y: insY, sheetIndex });
+                placedCircles.push({ x: rc.x, y: y, r: rc.r });
+
+                instanceDone++;
+                setSaveProgress(instanceDone, progressMax, 'Elrendezés…');
+                await saveUiTick();
+
+                if (sheetIndex > maxSheetIndex) maxSheetIndex = sheetIndex;
+              }
+
+              lastRowY = y;
+              lastRowMaxR = rowMaxR;
+              rowIndex++;
+            }
+
+          } else if (layoutMode === 'shelf') {
+            // Polc (shelf) pakolás: sorok változó magassággal
+            const sortedTypes = [...flakeData].sort((a, b) => {
+              const ah = a.height + 2 * pad;
+              const bh = b.height + 2 * pad;
+              if (bh !== ah) return bh - ah;
+              const aw = a.width + 2 * pad;
+              const bw = b.width + 2 * pad;
+              return bw - aw;
+            });
+
+            let sheetIndex = 0;
+            let x = 0;
+            let y = 0;
+            let shelfH = 0;
+
+            for (const flake of sortedTypes) {
+              const blockName = blockNames.get(flake.code);
+              const bboxW = flake.width + 2 * pad;
+              const bboxH = flake.height + 2 * pad;
+
+              if (bboxW > sheetW || bboxH > sheetH) {
+                console.warn(`A(z) ${flake.code} hópehely (bbox ${bboxW.toFixed(2)}×${bboxH.toFixed(2)} mm) nagyobb, mint a kirakási terület (${sheetW}×${sheetH} mm). Kilóghat a keretből.`);
+              }
+
+              for (let i = 0; i < flake.count; i++) {
+                if (x > 0 && (x + bboxW) > sheetW) {
+                  y += shelfH;
+                  x = 0;
+                  shelfH = 0;
+                }
+                if (y > 0 && (y + bboxH) > sheetH) {
+                  sheetIndex++;
+                  x = 0;
+                  y = 0;
+                  shelfH = 0;
+                }
+
+                const centerX = x + pad + (flake.width / 2);
+                const centerYDown = y + pad + (flake.height / 2);
+                const sheetOffset = sheetIndex * (sheetH + SHEET_SPACING);
+                const insX = centerX;
+                const insY = -(sheetOffset + centerYDown);
+
+                placements.push({ blockName, x: insX, y: insY, sheetIndex });
+                instanceDone++;
+                setSaveProgress(instanceDone, progressMax, 'Elrendezés…');
+                await saveUiTick();
+                if (sheetIndex > maxSheetIndex) maxSheetIndex = sheetIndex;
+
+                x += bboxW;
+                shelfH = Math.max(shelfH, bboxH);
+              }
+            }
+          } else {
+            // Rács (grid): azonos cellák (a legnagyobb pehely alapján)
+            const cellSize = Math.max(maxWidth, maxHeight) + 2 * pad; // = maxDim + clearance
+            let colsPerSheet = Math.floor(sheetW / cellSize);
+            let rowsPerSheet = Math.floor(sheetH / cellSize);
+            if (colsPerSheet < 1) colsPerSheet = 1;
+            if (rowsPerSheet < 1) rowsPerSheet = 1;
+            const capacityPerSheet = colsPerSheet * rowsPerSheet;
+
+            let index = 0;
+            for (const flake of flakeData) {
+              const blockName = blockNames.get(flake.code);
+              for (let i = 0; i < flake.count; i++) {
+                const sheetIndex = Math.floor(index / capacityPerSheet);
+                const within = index % capacityPerSheet;
+                const row = Math.floor(within / colsPerSheet);
+                const col = within % colsPerSheet;
+
+                const centerX = (col * cellSize) + (cellSize / 2);
+                const centerYDown = (row * cellSize) + (cellSize / 2);
+                const sheetOffset = sheetIndex * (sheetH + SHEET_SPACING);
+                const insY = -(sheetOffset + centerYDown);
+
+                placements.push({ blockName, x: centerX, y: insY, sheetIndex });
+                instanceDone++;
+                setSaveProgress(instanceDone, progressMax, 'Elrendezés…');
+                await saveUiTick();
+                if (sheetIndex > maxSheetIndex) maxSheetIndex = sheetIndex;
+                index++;
               }
             }
           }
 
-          // Ha nem férne bele a kirakási terület magasságába, új területet kezdünk (100mm hézaggal lejjebb)
-          if (y + rowMaxR > sheetH && placedCircles.length > 0) {
-            resetForNewSheet();
-
-            // Új területen a sor bal-felsőből indul újra (eltolás nélküli első sor)
-            rowIndex = 0;
-            let rx = rowMaxR;
-            row[0].x = rx;
-            let pr = row[0].r;
-            for (let i = 1; i < row.length; i++) {
-              rx = rx + pr + row[i].r;
-              row[i].x = rx;
-              pr = row[i].r;
-            }
-            y = rowMaxR;
+          const frames = [];
+          for (let s = 0; s <= maxSheetIndex; s++) {
+            frames.push({
+              sheetW,
+              sheetH,
+              offsetDown: s * (sheetH + SHEET_SPACING),
+              layer: 'Keret'
+            });
           }
 
-          const sheetOffset = sheetIndex * (sheetH + SHEET_SPACING);
+          const inserts = placements.map(p => ({
+            blockName: p.blockName,
+            x: p.x,
+            y: p.y,
+            layer: '0',
+            scale: 1,
+            rotationDeg: 0
+          }));
 
-          for (const rc of row) {
-            const blockName = blockNames.get(rc.code);
-            const insX = rc.x;
-            const insY = -(sheetOffset + y);
+          dxfString = PC.buildCollectionDxf({ blocks, frames, inserts });
 
-            placements.push({ blockName, x: insX, y: insY, sheetIndex });
-            placedCircles.push({ x: rc.x, y: y, r: rc.r });
-
-            instanceDone++;
-            setSaveProgress(instanceDone, progressMax, 'Elrendezés…');
-            await saveUiTick();
-
-            if (sheetIndex > maxSheetIndex) maxSheetIndex = sheetIndex;
-          }
-
-          lastRowY = y;
-          lastRowMaxR = rowMaxR;
-          rowIndex++;
+          setSaveProgress(instanceDone, progressMax, 'DXF összeállítva.');
+          await saveUiTick();
         }
 
-      } else if (layoutMode === 'shelf') {
-        // Polc (shelf) pakolás: sorok változó magassággal
-        const sortedTypes = [...flakeData].sort((a, b) => {
-          const ah = a.height + 2 * pad;
-          const bh = b.height + 2 * pad;
-          if (bh !== ah) return bh - ah;
-          const aw = a.width + 2 * pad;
-          const bw = b.width + 2 * pad;
-          return bw - aw;
-        });
+        const algoBaseName = `${algo}_${baseName}`;
 
-        let sheetIndex = 0;
-        let x = 0;
-        let y = 0;
-        let shelfH = 0;
-
-        for (const flake of sortedTypes) {
-          const blockName = blockNames.get(flake.code);
-          const bboxW = flake.width + 2 * pad;
-          const bboxH = flake.height + 2 * pad;
-
-          if (bboxW > sheetW || bboxH > sheetH) {
-            console.warn(`A(z) ${flake.code} hópehely (bbox ${bboxW.toFixed(2)}×${bboxH.toFixed(2)} mm) nagyobb, mint a kirakási terület (${sheetW}×${sheetH} mm). Kilóghat a keretből.`);
-          }
-
-          for (let i = 0; i < flake.count; i++) {
-            if (x > 0 && (x + bboxW) > sheetW) {
-              y += shelfH;
-              x = 0;
-              shelfH = 0;
-            }
-            if (y > 0 && (y + bboxH) > sheetH) {
-              sheetIndex++;
-              x = 0;
-              y = 0;
-              shelfH = 0;
-            }
-
-            const centerX = x + pad + (flake.width / 2);
-            const centerYDown = y + pad + (flake.height / 2);
-            const sheetOffset = sheetIndex * (sheetH + SHEET_SPACING);
-            const insX = centerX;
-            const insY = -(sheetOffset + centerYDown);
-
-            placements.push({ blockName, x: insX, y: insY, sheetIndex });
-            instanceDone++;
-            setSaveProgress(instanceDone, progressMax, 'Elrendezés…');
-            await saveUiTick();
-            if (sheetIndex > maxSheetIndex) maxSheetIndex = sheetIndex;
-
-            x += bboxW;
-            shelfH = Math.max(shelfH, bboxH);
-          }
+        if (dxfString) {
+          await saveWithPickerOrDownload(algoBaseName + '.dxf', 'application/dxf', dxfString);
+          setSaveProgress(instanceDone, progressMax, 'DXF mentve.');
+          await saveUiTick();
         }
-      } else {
-        // Rács (grid): azonos cellák (a legnagyobb pehely alapján)
-        const cellSize = Math.max(maxWidth, maxHeight) + 2 * pad; // = maxDim + clearance
-        let colsPerSheet = Math.floor(sheetW / cellSize);
-        let rowsPerSheet = Math.floor(sheetH / cellSize);
-        if (colsPerSheet < 1) colsPerSheet = 1;
-        if (rowsPerSheet < 1) rowsPerSheet = 1;
-        const capacityPerSheet = colsPerSheet * rowsPerSheet;
-
-        let index = 0;
-        for (const flake of flakeData) {
-          const blockName = blockNames.get(flake.code);
-          for (let i = 0; i < flake.count; i++) {
-            const sheetIndex = Math.floor(index / capacityPerSheet);
-            const within = index % capacityPerSheet;
-            const row = Math.floor(within / colsPerSheet);
-            const col = within % colsPerSheet;
-
-            const centerX = (col * cellSize) + (cellSize / 2);
-            const centerYDown = (row * cellSize) + (cellSize / 2);
-            const sheetOffset = sheetIndex * (sheetH + SHEET_SPACING);
-            const insY = -(sheetOffset + centerYDown);
-
-            placements.push({ blockName, x: centerX, y: insY, sheetIndex });
-            instanceDone++;
-            setSaveProgress(instanceDone, progressMax, 'Elrendezés…');
-            await saveUiTick();
-            if (sheetIndex > maxSheetIndex) maxSheetIndex = sheetIndex;
-            index++;
-          }
-        }
-      }
-
-      // Kirakási területek kerete (layer: keret)
-      for (let s = 0; s <= maxSheetIndex; s++) {
-        const off = s * (sheetH + SHEET_SPACING);
-        add(0, 'LWPOLYLINE');
-        add(8, 'Keret');
-        add(90, 4);
-        add(70, 1); // zárt
-        add(10, (0).toFixed(4));
-        add(20, (-off).toFixed(4));
-        add(10, (sheetW).toFixed(4));
-        add(20, (-off).toFixed(4));
-        add(10, (sheetW).toFixed(4));
-        add(20, (-(off + sheetH)).toFixed(4));
-        add(10, (0).toFixed(4));
-        add(20, (-(off + sheetH)).toFixed(4));
-      }
-
-      // Hópelyhek beszúrása
-      for (const p of placements) {
-        add(0, 'INSERT');
-        add(8, '0');
-        add(2, p.blockName);
-        add(10, p.x.toFixed(4));
-        add(20, p.y.toFixed(4));
-        add(30, 0);
-        add(41, 1); add(42, 1); add(43, 1);
-        add(50, 0);
-      }
-
-      add(0, 'ENDSEC');
-      add(0, 'EOF');
-
-      setSaveProgress(instanceDone, progressMax, 'DXF összeállítva.');
-      await saveUiTick();
     }
 
-const now = new Date();
-    const baseName = 'HAVAZO_' + formatTimestampForName(now);
-
-    if (dxfString) {
-      await saveWithPickerOrDownload(baseName + '.dxf', 'application/dxf', dxfString);
-      setSaveProgress(instanceDone, progressMax, 'DXF mentve.');
-      await saveUiTick();
-    }
-
-    const jsonData = {
+const jsonData = {
       version: ('HAVAZO_' + ((PC && PC.VERSION) ? PC.VERSION.toUpperCase() : 'V62')),
       generatedAt: now.toISOString(),
       items: codesWithCounts
@@ -1680,13 +1619,251 @@ const now = new Date();
     alert('Mentés kész: DXF és JSON létrehozva (ahol engedélyezve volt).');
   }
 
+  // ====== TESZT: algoritmusok összehasonlítása és eltérések DXF-be ======
+  function _roundSig(v) { return Math.round(v * 1000) / 1000; } // 0.001 mm
+  function _minPointIndices(pts) {
+    let minX = pts[0][0], minY = pts[0][1];
+    for (let i = 1; i < pts.length; i++) {
+      const x = pts[i][0], y = pts[i][1];
+      if (x < minX || (x === minX && y < minY)) { minX = x; minY = y; }
+    }
+    const idxs = [];
+    for (let i = 0; i < pts.length; i++) {
+      if (pts[i][0] === minX && pts[i][1] === minY) idxs.push(i);
+    }
+    return idxs;
+  }
+  function _rotateToIndex(pts, idx) {
+    if (idx <= 0) return pts;
+    return pts.slice(idx).concat(pts.slice(0, idx));
+  }
+  function _ptsToString(pts) {
+    // pts: [[x,y],...], already rounded
+    let s = '';
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i];
+      s += p[0] + ',' + p[1] + ';';
+    }
+    return s;
+  }
+  function _canonicalLoop(pointsUnique) {
+    if (!pointsUnique || pointsUnique.length < 3) return '';
+    const pts = pointsUnique.map(([x, y]) => [_roundSig(x), _roundSig(y)]);
+    const idxsF = _minPointIndices(pts);
+    let best = null;
+
+    for (const idx of idxsF) {
+      const rot = _rotateToIndex(pts, idx);
+      const s = _ptsToString(rot);
+      if (best === null || s < best) best = s;
+    }
+    // reversed orientation
+    const rev = pts.slice().reverse();
+    const idxsR = _minPointIndices(rev);
+    for (const idx of idxsR) {
+      const rot = _rotateToIndex(rev, idx);
+      const s = _ptsToString(rot);
+      if (best === null || s < best) best = s;
+    }
+    return best || '';
+  }
+  function _contoursSignature(contours) {
+    if (!contours || !contours.length) return 'NULL';
+    const parts = [];
+    for (const c of contours) {
+      if (!c || !c.points || c.points.length < 4) continue;
+      const unique = c.points.slice(0, c.points.length - 1);
+      const loopSig = _canonicalLoop(unique);
+      if (!loopSig) continue;
+      parts.push((c.isOuter ? 'O:' : 'I:') + loopSig);
+    }
+    parts.sort();
+    return parts.join('|') || 'NULL';
+  }
+
+  async function runTest() {
+    if (!items.length && !quantitiesFromJson.size) return;
+
+    // Gyűjtsük össze az összes kódot és darabszámot (saveAll logika szerint)
+    const allCodesSet = new Set();
+    for (const item of items) {
+      allCodesSet.add(item.code);
+      quantitiesFromJson.set(item.code, Number.isFinite(item.quantity) ? item.quantity : 0);
+    }
+    for (const [code] of quantitiesFromJson.entries()) allCodesSet.add(code);
+
+    const codesWithCounts = [];
+    for (const code of allCodesSet) {
+      const count = Number(quantitiesFromJson.get(code) || 0);
+      if (count > 0) codesWithCounts.push({ code, count });
+    }
+    if (codesWithCounts.length === 0) return;
+
+    // C algoritmus eltávolítva. TESZT: A, B.
+    const algos = ['A', 'B'];
+    const totalChecks = codesWithCounts.length * algos.length;
+
+    showSaveProgress(0, Math.max(1, totalChecks), 'TESZT: összehasonlítás…');
+    await saveUiTick();
+
+    // Csak az egymás utáni algoritmusok eredményeit hasonlítjuk (B vs A)
+    const rows = []; // { code, perAlgo: {A:{...},...}, sigs:{...}, firstDiffAlgo }
+    let done = 0;
+    let diffRows = 0;
+
+    for (const entry of codesWithCounts) {
+      const code = entry.code;
+
+      const sigs = {};
+      const perAlgo = {};
+      let prevSig = null;
+      let firstDiffAlgo = null;
+
+      for (const algo of algos) {
+        const geom = computeContoursForCode(code, algo);
+        const contours = (geom && geom.contoursWithFlags) ? geom.contoursWithFlags : null;
+        const sig = _contoursSignature(contours);
+        sigs[algo] = sig;
+
+        if (prevSig !== null && firstDiffAlgo === null && sig !== prevSig) firstDiffAlgo = algo;
+        prevSig = sig;
+
+        if (contours && contours.length) {
+          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+          for (const c of contours) {
+            const unique = c.points.slice(0, c.points.length - 1);
+            for (const [x, y] of unique) {
+              if (x < minX) minX = x;
+              if (x > maxX) maxX = x;
+              if (y < minY) minY = y;
+              if (y > maxY) maxY = y;
+            }
+          }
+          perAlgo[algo] = { contours, minX, minY, maxX, maxY, width: (maxX - minX), height: (maxY - minY) };
+        } else {
+          perAlgo[algo] = { contours: null, minX: 0, minY: 0, maxX: 0, maxY: 0, width: 0, height: 0 };
+        }
+
+        done++;
+        setSaveProgress(done, totalChecks, `TESZT: ${done}/${totalChecks}`);
+        await saveUiTick();
+      }
+
+      if (firstDiffAlgo !== null) diffRows++;
+      rows.push({ code, perAlgo, sigs, firstDiffAlgo });
+    }
+
+    // DXF összeállítás: algoritmusonként oszlopokba rendezve (A | B | D).
+    // A oszlop (referencia) mindig szerepel minden kódhoz.
+    let clearance = parseFloat(document.getElementById('shapeGapInput')?.value ?? '2');
+    if (!Number.isFinite(clearance) || clearance < 0) clearance = 2;
+
+    const blocksByName = new Map();
+    const inserts = [];
+
+    // Oszlopszélességek: a sorok között algoritmusonként a max szélesség
+    const colW = {};
+    for (const algo of algos) colW[algo] = 0;
+    for (const row of rows) {
+      for (const algo of algos) colW[algo] = Math.max(colW[algo], (row.perAlgo[algo]?.width || 0));
+    }
+
+    // Oszlop bal szélek
+    const colLeft = {};
+    let xAcc = 0;
+    for (const algo of algos) {
+      colLeft[algo] = xAcc;
+      xAcc += colW[algo] + clearance;
+    }
+
+    let rowTop = 0;
+    for (const row of rows) {
+      // sor magasság: max az algoritmusok között
+      let rowH = 0;
+      for (const algo of algos) rowH = Math.max(rowH, (row.perAlgo[algo]?.height || 0));
+
+      const yCenter = -(rowTop + (rowH / 2));
+
+      for (let ai = 0; ai < algos.length; ai++) {
+        const algo = algos[ai];
+        const v = row.perAlgo[algo];
+
+        // oszlopon belül középre igazítás
+        const xCenter = colLeft[algo] + (colW[algo] / 2);
+
+        // Ha az adott algoritmus eredménye megegyezik az előzőével, hagyjuk üresen az oszlopot (a hely megmarad).
+        // (A mindig bekerül, mert referencia.)
+        if (ai > 0) {
+          const prevAlgo = algos[ai - 1];
+          if ((row.sigs?.[algo] ?? null) === (row.sigs?.[prevAlgo] ?? null)) continue;
+        }
+
+        // Ha nincs kontúr, hagyjuk üresen az oszlopot (a hely attól még megmarad)
+        if (!v || !v.contours || !v.contours.length) continue;
+
+        const blockName = algo + '_' + PC.blockNameFromCode(row.code);
+        const cx = (v.minX + v.maxX) / 2;
+        const cy = (v.minY + v.maxY) / 2;
+        const pHole = PC.paramsFromCode(row.code);
+
+        if (!blocksByName.has(blockName)) {
+          blocksByName.set(blockName, {
+            blockName,
+            contoursWithFlags: v.contours,
+            centerX: cx,
+            centerY: cy,
+            minRectMm: pHole.minRectMm,
+            includeHole: true
+          });
+        }
+
+        inserts.push({ blockName, x: xCenter, y: yCenter, layer: '0', scale: 1, rotationDeg: 0 });
+      }
+
+      rowTop += rowH + clearance;
+    }
+
+    const dxfString = PC.buildCollectionDxf({
+      blocks: Array.from(blocksByName.values()),
+      frames: [],
+      inserts
+    });
+
+    const now = new Date();
+    const name = 'TESZT_' + formatTimestampForName(now) + '.dxf';
+
+    setSaveProgress(totalChecks, totalChecks, `TESZT: mentés… (sor: ${rows.length}, eltérés: ${diffRows})`);
+    await saveUiTick();
+
+    await saveWithPickerOrDownload(name, 'application/dxf', dxfString);
+
+    if (saveProgressArea) saveProgressArea.style.display = 'none';
+  }
+
+
   // ====== Init ======
   window.addEventListener('load', () => {
     // Verzió (kívül-belül egységesen)
     const vEl = document.getElementById('appVersion');
-    const v = (PC && PC.VERSION) ? PC.VERSION : 'v75';
+    const v = (PC && PC.VERSION) ? PC.VERSION : 'v81.1';
     if (vEl) vEl.textContent = v;
     document.title = 'Rodé Lajos - HAVAZO ' + v;
+
+    // DXF algoritmus választó + leírás
+    const dxfAlgoSelect = document.getElementById('dxfAlgoSelect');
+    const dxfAlgoDesc = document.getElementById('dxfAlgoDesc');
+    const DXF_ALGO_DESCS = {
+      all: 'MIND: az összes algoritmussal külön DXF-et készít (A, B).',
+      A: 'A: eredeti kontúrképzés (metszéssplit + oldal-mintavétel + gráfbejárás).',
+      B: 'B: jelenlegi kontúrképzés: A + adaptív oldal-mintavételi eltolás + finomabb csúcssnap + split-összevonás (robosztusabb).'
+    };
+    function refreshAlgoDesc() {
+      const key = dxfAlgoSelect ? dxfAlgoSelect.value : 'B';
+      if (dxfAlgoDesc) dxfAlgoDesc.value = DXF_ALGO_DESCS[key] || '';
+    }
+    if (dxfAlgoSelect) dxfAlgoSelect.addEventListener('change', refreshAlgoDesc);
+    refreshAlgoDesc();
+
 
     // GENERÁTOR gomb: host (iframe) módban fülváltás, különben navigáció.
     const gotoLink = document.getElementById('gotoPehelyLink');
@@ -1709,6 +1886,8 @@ const now = new Date();
       .addEventListener('click', generateMissingImages);
     document.getElementById('bulkApplyBtn')
       .addEventListener('click', applyBulkQuantity);
+    document.getElementById('testBtn')
+      .addEventListener('click', runTest);
     document.getElementById('saveAllBtn')
       .addEventListener('click', saveAll);
 
