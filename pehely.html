@@ -107,6 +107,64 @@
       width: 4.5rem;
       padding: 0.1rem 0.2rem;
     }
+
+    .profile-stack {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 0.2em;
+      min-width: 0;
+    }
+    .profile-stack > input[type="range"] {
+      flex: 0 0 auto; /* ne nyúljon meg függőlegesen */
+      width: 100%;
+    }
+
+    .profile-grid {
+      display: grid;
+      grid-template-columns: 1fr 4.5rem; /* jobb oldalt a számmező szélessége */
+      grid-template-rows: auto auto;
+      column-gap: 0.5rem;
+      row-gap: 0.2rem;
+      align-items: center;
+      width: 100%;
+    }
+    .profile-grid .profile-mode-row {
+      grid-column: 1;
+      grid-row: 1;
+      justify-content: flex-start;
+    }
+    .profile-grid .profile-grid-empty {
+      grid-column: 2;
+      grid-row: 1;
+    }
+    .profile-grid input[type="range"] {
+      grid-column: 1;
+      grid-row: 2;
+      width: 100%;
+    }
+    .profile-grid input[type="number"] {
+      grid-column: 2;
+      grid-row: 2;
+      width: 4.5rem;
+      padding: 0.1rem 0.2rem;
+    }
+    .profile-mode-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      column-gap: 0.8em;
+      row-gap: 0.2em;
+      flex-wrap: wrap; /* nagyon keskeny nézetben törhessen, de alapból egysor */
+      width: 100%;
+    }
+    .profile-mode-label {
+      display: flex;
+      align-items: center;
+      gap: 0.4em;
+      margin: 0;
+      white-space: nowrap;
+    }
     select {
       width: 100%;
       padding: 0.15rem 0.2rem;
@@ -231,8 +289,8 @@
       <div class="control-group">
         <label for="ratioSlider">Vastagság (%)</label>
         <div class="control-row">
-          <input id="ratioSlider" type="range" min="5" max="40" step="1" value="15">
-          <input id="ratioInput" type="number" min="5" max="40" step="1" value="15">
+          <input id="ratioSlider" type="range" min="1" max="40" step="1" value="15">
+          <input id="ratioInput" type="number" min="1" max="40" step="1" value="15">
         </div>
       </div>
 
@@ -288,10 +346,19 @@
       </div>
 
       <hr class="separator">
-
       <div class="control-group">
-        <label for="trapezSlider">Trapezitás</label>
-        <div class="control-row">
+        <div class="profile-grid">
+          <div class="profile-mode-row">
+            <label class="profile-mode-label">
+              <input type="radio" name="profileMode" id="profileModeTrapez" value="TR" checked>
+              Trapezitás
+            </label>
+            <label class="profile-mode-label">
+              <input type="radio" name="profileMode" id="profileModeBarrel" value="HO">
+              Hordósság
+            </label>
+          </div>
+          <div class="profile-grid-empty"></div>
           <input id="trapezSlider" type="range" min="-5" max="5" step="0.1" value="0">
           <input id="trapezInput" type="number" min="-5" max="5" step="0.1" value="0">
         </div>
@@ -585,6 +652,7 @@
     const spacingVal  = parseFloat(document.getElementById('spacingSlider').value);
     const redVal      = parseFloat(document.getElementById('reductionSlider').value);
     const trapezVal   = parseFloat(document.getElementById('trapezSlider').value);
+    const profileMode = (document.getElementById('profileModeBarrel') && document.getElementById('profileModeBarrel').checked) ? 'HO' : 'TR';
     const minRectVal  = parseFloat(document.getElementById('minRectSlider').value);
     const growSmall   = document.getElementById('growSmallCheckbox').checked;
     const tipScaleVal = parseFloat(document.getElementById('tipScaleSlider').value);
@@ -613,6 +681,7 @@
       showTrunk,
       armCount:          6,
       trapez:            Number.isFinite(trapezVal)  ? trapezVal  : 0,
+      profileMode:       profileMode,
       minRectMm:         Number.isFinite(minRectVal) ? minRectVal : 3.0,
       runoff:           runoffVal,
       growSmallRects:    growSmall
@@ -651,7 +720,13 @@
     document.getElementById('tipCenterCheckbox').checked = !!p.tipAtCenter;
     document.getElementById('showTrunkCheckbox').checked = !!p.showTrunk;
     document.getElementById('growSmallCheckbox').checked = !!p.growSmallRects;
-  }
+  
+
+    // Trapezitás / Hordósság választás
+    const isBarrel = (p && p.profileMode === 'HO');
+    if (document.getElementById('profileModeBarrel')) document.getElementById('profileModeBarrel').checked = isBarrel;
+    if (document.getElementById('profileModeTrapez')) document.getElementById('profileModeTrapez').checked = !isBarrel;
+}
 
   // [KISZERVEZVE pehely-core.js-be] buildCodeFromParams
 
@@ -934,7 +1009,7 @@ async function loadFromJPG() {
   window.addEventListener('load', () => {
     // Verzió (kívül-belül egységesen)
     const vEl = document.getElementById('appVersion');
-    const v = (PC && PC.VERSION) ? PC.VERSION : 'v81.1';
+    const v = (PC && PC.VERSION) ? PC.VERSION : 'v82.9';
     if (vEl) vEl.textContent = v;
     document.title = 'Rodé Lajos - Hópehely generátor ' + v;
 
@@ -992,6 +1067,13 @@ async function loadFromJPG() {
     syncInputPair('reductionSlider','reductionInput',recomputeFromUI);
     syncInputPair('tipScaleSlider', 'tipScaleInput', recomputeFromUI);
     syncInputPair('trapezSlider',   'trapezInput',   recomputeFromUI);
+
+    // Trapezitás / Hordósság rádió
+    const rTr = document.getElementById('profileModeTrapez');
+    const rHo = document.getElementById('profileModeBarrel');
+    if (rTr) rTr.addEventListener('change', recomputeFromUI);
+    if (rHo) rHo.addEventListener('change', recomputeFromUI);
+
         syncInputPair('minRectSlider',  'minRectInput',  recomputeFromUI);
 
     document.getElementById('growSmallCheckbox')

@@ -20,9 +20,9 @@
 
   // Verziók / konstansok
   // KÖZPONTI VERZIÓ – a HTML-ek ezt olvassák ki.
-  PehelyCore.VERSION = "v81.8";
+  PehelyCore.VERSION = "v83.0";
   PehelyCore.CODE_FORMAT_VERSION = 1; // V01
-  PehelyCore.CODE_FORMAT_TAG = "V01";
+  PehelyCore.CODE_FORMAT_TAG = "V03";
 
   const DXF_TARGET_SIZE = 100.0; // mm – a modell max kiterjedése export előtt
   PehelyCore.DXF_TARGET_SIZE = DXF_TARGET_SIZE;
@@ -413,40 +413,60 @@ function paramsFromCode(codeString) {
     if (parts.length < 12) {
       throw new Error('Érvénytelen PEHELY kód: ' + codeString);
     }
-    // ÚJ (v49): Lefutás kód (a Végforma után) – visszafelé kompatibilis.
-    // Régi: angle-ratio-space-red-tip-tipScale-tipOnly-tipCenter-trunk-arms-minRect-grow
-    // Új:   angle-ratio-space-red-tip-runoff-tipScale-tipOnly-tipCenter-trunk-arms-minRect-grow
+    // Lefutás kód (a Végforma után) – visszafelé kompatibilis.
+    // Régi (V00): angle-ratio-space-red-tip-tipScale-tipOnly-tipCenter-trunk-arms-minRect-grow
+    // V49+:       angle-ratio-space-red-tip-runoff-tipScale-tipOnly-tipCenter-trunk-arms-minRect-grow
+    // V82+ (V02): angle-ratio-space-red-tip-runoff-tipScale-tipOnly-tipCenter-trunk-arms-minRect-trapez-profile-grow
     let angleStr, ratioStr, spaceStr, redStr;
-    let tipCode, runoffCode, tipScaleStr, tipOnlyFlag, tipCenterFlag, trunkFlag, armsStr, minRectStr, trapezCode, growFlag;
+    let tipCode, runoffCode = 'NE', tipScaleStr, tipOnlyFlag, tipCenterFlag, trunkFlag, armsStr, minRectStr;
+    let trapezCode = '000', profileMode = 'TR', growFlag;
 
     if (parts.length === 12) {
       // Régi (nincs lefutás és nincs trapéz)
       [angleStr, ratioStr, spaceStr, redStr,
        tipCode, tipScaleStr, tipOnlyFlag, tipCenterFlag, trunkFlag,
        armsStr, minRectStr, growFlag] = parts;
-      runoffCode = 'NE';
-      trapezCode = '000';
     } else if (parts.length === 13) {
-      // Lehet: régi (van lefutás, nincs trapéz) vagy új (nincs lefutás, van trapéz)
+      // Lehet: (van lefutás, nincs trapéz) vagy (nincs lefutás, van trapéz)
       const maybeRunoff = parts[5];
       if (/^[A-Z]{2}$/.test(maybeRunoff)) {
         [angleStr, ratioStr, spaceStr, redStr,
          tipCode, runoffCode, tipScaleStr, tipOnlyFlag, tipCenterFlag, trunkFlag,
          armsStr, minRectStr, growFlag] = parts;
-        trapezCode = '000';
       } else {
         [angleStr, ratioStr, spaceStr, redStr,
          tipCode, tipScaleStr, tipOnlyFlag, tipCenterFlag, trunkFlag,
          armsStr, minRectStr, trapezCode, growFlag] = parts;
-        runoffCode = 'NE';
+      }
+    } else if (parts.length === 14) {
+      // Lehet: (van lefutás és trapéz) vagy (nincs lefutás, trapéz+profil)
+      const maybeRunoff = parts[5];
+      if (/^[A-Z]{2}$/.test(maybeRunoff)) {
+        [angleStr, ratioStr, spaceStr, redStr,
+         tipCode, runoffCode, tipScaleStr, tipOnlyFlag, tipCenterFlag, trunkFlag,
+         armsStr, minRectStr, trapezCode, growFlag] = parts;
+      } else {
+        [angleStr, ratioStr, spaceStr, redStr,
+         tipCode, tipScaleStr, tipOnlyFlag, tipCenterFlag, trunkFlag,
+         armsStr, minRectStr, trapezCode, profileMode, growFlag] = parts;
       }
     } else {
-      // Új (van lefutás és trapéz)
+      // Új (van lefutás, trapéz és profil)
       [angleStr, ratioStr, spaceStr, redStr,
        tipCode, runoffCode, tipScaleStr, tipOnlyFlag, tipCenterFlag, trunkFlag,
-       armsStr, minRectStr, trapezCode, growFlag] = parts.slice(0, 14);
-      trapezCode = trapezCode || '000';
+       armsStr, minRectStr, trapezCode, profileMode, growFlag] = parts.slice(0, 15);
     }
+
+    
+    // V02/V03 kompatibilitás: a profil token (TR/HO) és a 3-karakteres trapez-kód (n/p/0..)
+    // egyes korábbi mentésekben felcserélődhetett.
+    const _isProfileToken = (s) => (s === 'TR' || s === 'HO');
+    const _isTrapezCode = (s) => /^[npm0m][0-9]{2}$/i.test(s);
+    if (_isProfileToken(trapezCode) && _isTrapezCode(profileMode)) {
+      const tmp = trapezCode; trapezCode = profileMode; profileMode = tmp;
+    }
+trapezCode = trapezCode || '000';
+    profileMode = (profileMode === 'HO') ? 'HO' : 'TR';
 
     const angle   = parseFloat(angleStr) || 0;
     const ratio   = parseFloat(ratioStr) || 0;
@@ -459,23 +479,26 @@ function paramsFromCode(codeString) {
     else if (tipCode === '6S') tipMode = 3;
     else if (tipCode === '4S') tipMode = 4;
 
-    const tipScale   = parseFloat(tipScaleStr);
-    const arms       = parseInt(armsStr, 10);
-    const minRectMm  = parseFloat(minRectStr);
-    const trapezVal  = Math.max(-5, Math.min(5, trapezValueFromCode(trapezCode)));
+    const tipScale = parseFloat(tipScaleStr);
+    const arms = parseInt(armsStr, 10);
+    const minRectMm = parseFloat(minRectStr);
+    const trapezVal = trapezValueFromCode(trapezCode);
 
-    
     const runoff = (function(code){
-      switch ((code || '').toUpperCase()) {
+      switch (code) {
         case 'PO': return '.oO';
         case 'NU': return 'ooo';
+        case 'PP': return '.o.';
         case 'VA': return 'oOo';
         case 'VB': return 'OoO';
+        case 'RR': return 'OOO';
+        case 'EE': return '...';
         case 'NE':
         default:   return 'Oo.';
       }
     })(runoffCode);
-return {
+
+    return {
       branchAngleDeg:    angle,
       rectAspectPercent: ratio,
       spacingPercent:    spacing,
@@ -488,6 +511,7 @@ return {
       armCount:          Number.isFinite(arms) ? arms : 6,
       minRectMm:         Number.isFinite(minRectMm) ? minRectMm : 0,
       trapez:            Number.isFinite(trapezVal) ? trapezVal : 0,
+      profileMode:       profileMode,
       growSmallRects:    (growFlag === 'Y'),
       runoff:            runoff
     };
@@ -525,9 +549,10 @@ function buildCodeFromParams(p) {
     const armsStr     = Math.round(p.armCount).toString();
     const minRectStr  = (Number.isFinite(p.minRectMm) ? p.minRectMm : 0).toFixed(1);
     const trapezCode = trapezCodeFromValue(p.trapez);
+    const profileMode = (p.profileMode === 'HO') ? 'HO' : 'TR';
     const growFlag    = p.growSmallRects ? 'Y' : 'N';
 
-    const body = `${angleStr}-${ratioStr}-${spacingStr}-${redStr}-${tipCode}-${runoffCode}-${tipScaleStr}-${tipOnlyFlag}-${tipCenterFlag}-${trunkFlag}-${armsStr}-${minRectStr}-${trapezCode}-${growFlag}`;
+    const body = `${angleStr}-${ratioStr}-${spacingStr}-${redStr}-${tipCode}-${runoffCode}-${tipScaleStr}-${tipOnlyFlag}-${tipCenterFlag}-${trunkFlag}-${armsStr}-${minRectStr}-${profileMode}-${trapezCode}-${growFlag}`;
 
     return `${PehelyCore.CODE_FORMAT_TAG}-${body}`;
   }
@@ -900,12 +925,71 @@ function _scaleEdgeAboutMid(a, b, factor) {
     return [farA, farB, nearB, nearA, farA];
   }
 
+  function applyBarrelToRectPolys(rectPoly, barrelVal, minWidthModel) {
+    const t = (typeof barrelVal === 'number' && isFinite(barrelVal)) ? barrelVal : 0;
+    const absT = Math.abs(t);
+    if (!rectPoly || rectPoly.length < 4) {
+      return { polys: [], farRect: rectPoly, nearRect: rectPoly };
+    }
+    if (absT < 1e-9) {
+      const r = applyTrapezToRectPoly(rectPoly, 0, minWidthModel);
+      return { polys: [r], farRect: r, nearRect: r };
+    }
+
+    const farA0 = rectPoly[0], farB0 = rectPoly[1];
+    const nearA0 = rectPoly[3], nearB0 = rectPoly[2];
+
+    const midA = [(farA0[0] + nearA0[0]) / 2, (farA0[1] + nearA0[1]) / 2];
+    const midB = [(farB0[0] + nearB0[0]) / 2, (farB0[1] + nearB0[1]) / 2];
+
+    const farHalf  = [[farA0[0], farA0[1]], [farB0[0], farB0[1]], [midB[0], midB[1]], [midA[0], midA[1]], [farA0[0], farA0[1]]];
+    const nearHalf = [[midA[0], midA[1]], [midB[0], midB[1]], [nearB0[0], nearB0[1]], [nearA0[0], nearA0[1]], [midA[0], midA[1]]];
+
+    const a = absT;
+    let tFar = 0, tNear = 0;
+    if (t > 0) {
+      // Középen hízik: a két fél trapéz a középső oldalnál legyen szélesebb.
+      tFar  = -a; // farHalf: a NEAR (közép) szélesedik
+      tNear = +a; // nearHalf: a FAR (közép) szélesedik
+    } else {
+      // Középen fogy: a két fél trapéz a külső oldalaknál legyen szélesebb.
+      tFar  = +a; // farHalf: a FAR (külső) szélesedik
+      tNear = -a; // nearHalf: a NEAR (külső) szélesedik
+    }
+
+    const farRect  = applyTrapezToRectPoly(farHalf,  tFar,  minWidthModel);
+    const nearRect = applyTrapezToRectPoly(nearHalf, tNear, minWidthModel);
+
+    return { polys: [farRect, nearRect], farRect, nearRect };
+  }
+
+
 function segmentToPolys(seg, params) {
     const polys = [];
     const minWidthModel = (typeof params._minWidthModel === 'number' && isFinite(params._minWidthModel)) ? params._minWidthModel : 0;
     const trapezVal = (typeof params.trapez === 'number' && isFinite(params.trapez)) ? params.trapez : 0;
+    const profileMode = (params && params.profileMode === 'HO') ? 'HO' : 'TR';
     const rect0 = makeRectFromBase(seg.bx, seg.by, seg.length, seg.width, seg.angle);
-    const mainRect = applyTrapezToRectPoly(rect0, trapezVal, minWidthModel);
+    let mainPolys = [];
+    let mainRectFar = null;
+    let mainRectNear = null;
+
+    if (profileMode === 'HO') {
+      const res = applyBarrelToRectPolys(rect0, trapezVal, minWidthModel);
+      mainPolys = res.polys || [];
+      mainRectFar = res.farRect || (mainPolys[0] || null);
+      mainRectNear = res.nearRect || (mainPolys[mainPolys.length - 1] || null);
+    } else {
+      const mainRect = applyTrapezToRectPoly(rect0, trapezVal, minWidthModel);
+      mainPolys = [mainRect];
+      mainRectFar = mainRect;
+      mainRectNear = mainRect;
+    }
+
+
+    if (!mainRectFar || !mainRectNear || !mainPolys.length) {
+      return polys;
+    }
 
     const tipMode     = seg.tipMode;
     const tipScale    = (typeof seg.tipScale === 'number' && isFinite(seg.tipScale)) ? seg.tipScale : 1;
@@ -914,9 +998,9 @@ function segmentToPolys(seg, params) {
     const showTrunk   = !!params.showTrunk;
 
     if (seg.isTrunk) {
-      if (showTrunk) polys.push(mainRect);
+      if (showTrunk) polys.push(...mainPolys);
     } else {
-      if (!onlyTips) polys.push(mainRect);
+      if (!onlyTips) polys.push(...mainPolys);
     }
 
     if (tipMode === 0) return polys;
@@ -924,8 +1008,8 @@ function segmentToPolys(seg, params) {
     const d = { x: Math.cos(seg.angle), y: Math.sin(seg.angle) };
 
     if (tipMode === 2) {
-      const farA = mainRect[0], farB = mainRect[1];
-      const nearA = mainRect[3], nearB = mainRect[2];
+      const farA = mainRectFar[0], farB = mainRectFar[1];
+      const nearA = mainRectNear[3], nearB = mainRectNear[2];
 
       const capWidthTop = Math.hypot(farB[0] - farA[0], farB[1] - farA[1]);
       const capWidthBase = Math.hypot(nearB[0] - nearA[0], nearB[1] - nearA[1]);
@@ -947,10 +1031,10 @@ function segmentToPolys(seg, params) {
       return polys;
     }
 
-    const p1_far  = mainRect[0];
-    const p2_far  = mainRect[1];
-    const p1_near = mainRect[3];
-    const p2_near = mainRect[2];
+    const p1_far  = mainRectFar[0];
+    const p2_far  = mainRectFar[1];
+    const p1_near = mainRectNear[3];
+    const p2_near = mainRectNear[2];
 
     const dTop  = d;
     const dBase = { x: -d.x, y: -d.y };
@@ -2076,14 +2160,354 @@ function createJpegBlobForCode(code, paramsOrTheme = null) {
         try {
           const arr = await blobToArrayBuffer(blob);
           const currentCode = buildCodeFromParams(params);
-          const commentedBlob = addJpegCommentToArrayBuffer(arr, 'PEHELY-' + currentCode);
-          resolve(commentedBlob);
+
+          // PEHELY-kód: mindig egyetlen kánonikus komment maradjon.
+          let outBlob = replacePehelyCodeInJpegArrayBuffer(arr, currentCode);
+
+          // KOMPLEX: ha számolható, írjuk be külön kommentként.
+          try {
+            const komplex = computeKomplexForParams(params, 'B');
+            if (komplex) {
+              const ab2 = await blobToArrayBuffer(outBlob);
+              outBlob = replaceKomplexInJpegArrayBuffer(ab2, komplex);
+            }
+          } catch (e2) {
+            // KOMPLEX nem kritikus: a JPG ettől még menthető.
+            console.warn('KOMPLEX beágyazási hiba:', e2);
+          }
+
+          resolve(outBlob);
         } catch (e) {
           console.error('JPG komment beágyazási hiba:', e);
           resolve(blob);
         }
       }, 'image/jpeg', 0.92);
     });
+  }
+
+
+
+  // ============================================================
+  // KOMPLEX (komplexitás metrikák) – JPG kommentként tárolva
+  //
+  // Formátum (külön COM szegmensben):
+  //   KOMPLEX-V01;KM=1;BM=6;KH=512.3;BH=88.1;KT=12345.6;BT=234.5
+  //
+  // Kulcsok:
+  //   KM/BM = Külső/Belső Mennyiség (hurkok száma)
+  //   KH/BH = Külső/Belső kerület (vágáshossz) [mm]
+  //   KT/BT = Külső/Belső terület [mm^2]
+  // ============================================================
+
+  const KOMPLEX_PREFIX = 'KOMPLEX-';
+  const KOMPLEX_TAG = 'V01';
+
+  function round1(x) {
+    return Math.round(x * 10) / 10;
+  }
+
+  function computeLoopArea(points) {
+    const pts = points || [];
+    if (pts.length < 3) return 0;
+    let area = 0;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      const xi = pts[i][0], yi = pts[i][1];
+      const xj = pts[j][0], yj = pts[j][1];
+      area += (xj * yi - xi * yj);
+    }
+    return 0.5 * area;
+  }
+
+  function computeKomplexFromContoursWithFlags(contoursWithFlags) {
+    const loops = Array.isArray(contoursWithFlags) ? contoursWithFlags : [];
+    // KM/BM = Külső/Belső mennyiség (hurkok száma)
+    // KP/BP = Külső/Belső pontok száma (összes csúcs a hurkokon)
+    // KH/BH = Külső/Belső kerület (vágáshossz) [mm]
+    // KT/BT = Külső/Belső terület [mm^2]
+    // KF/BF = Külső/Belső átlagos csúcsszög (0..180 fok) [deg]
+    let KM = 0, BM = 0;
+    let KP = 0, BP = 0;
+    let KH = 0, BH = 0; // mm
+    let KT = 0, BT = 0; // mm^2
+    let kfSum = 0, kfCnt = 0;
+    let bfSum = 0, bfCnt = 0;
+
+    for (const c of loops) {
+      if (!c || !Array.isArray(c.points) || c.points.length < 3) continue;
+      const ptsAll = c.points;
+      const p0 = ptsAll[0];
+      const pLast = ptsAll[ptsAll.length - 1];
+      const closed = (Math.hypot(p0[0] - pLast[0], p0[1] - pLast[1]) < 1e-9);
+
+      const unique = closed ? ptsAll.slice(0, ptsAll.length - 1) : ptsAll.slice();
+      if (unique.length < 3) continue;
+
+      // Kerület (mm)
+      let perim = 0;
+      for (let i = 0; i < unique.length; i++) {
+        const a = unique[i];
+        const b = unique[(i + 1) % unique.length];
+        perim += Math.hypot(b[0] - a[0], b[1] - a[1]);
+      }
+
+      // Terület (mm^2)
+      const areaAbs = Math.abs(computeLoopArea(unique));
+
+      // Átlagos csúcsszög (0..180°) - összeg/cnt
+      let localSum = 0, localCnt = 0;
+      const n = unique.length;
+      for (let i = 0; i < n; i++) {
+        const prev = unique[(i - 1 + n) % n];
+        const curr = unique[i];
+        const next = unique[(i + 1) % n];
+
+        const v1x = prev[0] - curr[0];
+        const v1y = prev[1] - curr[1];
+        const v2x = next[0] - curr[0];
+        const v2y = next[1] - curr[1];
+
+        const l1 = Math.hypot(v1x, v1y);
+        const l2 = Math.hypot(v2x, v2y);
+        if (l1 < 1e-12 || l2 < 1e-12) continue;
+
+        let cos = (v1x * v2x + v1y * v2y) / (l1 * l2);
+        if (cos > 1) cos = 1;
+        if (cos < -1) cos = -1;
+        const rad = Math.acos(cos);
+        const deg = rad * (180 / Math.PI);
+        if (Number.isFinite(deg)) {
+          localSum += deg;
+          localCnt += 1;
+        }
+      }
+
+      if (c.isOuter) {
+        KM += 1;
+        KP += unique.length;
+        KH += perim;
+        KT += areaAbs;
+        if (localCnt > 0) { kfSum += localSum; kfCnt += localCnt; }
+      } else {
+        BM += 1;
+        BP += unique.length;
+        BH += perim;
+        BT += areaAbs;
+        if (localCnt > 0) { bfSum += localSum; bfCnt += localCnt; }
+      }
+    }
+
+    const KF = kfCnt > 0 ? (kfSum / kfCnt) : 0;
+    const BF = bfCnt > 0 ? (bfSum / bfCnt) : 0;
+
+    return {
+      KM,
+      BM,
+      KP,
+      BP,
+      KH: round1(KH),
+      BH: round1(BH),
+      KT: round1(KT),
+      BT: round1(BT),
+      KF: round1(KF),
+      BF: round1(BF)
+    };
+  }
+
+  function computeKomplexForParams(params, algo = 'B') {
+    const res = computeContoursForParams(params, algo);
+    if (!res || !res.contoursWithFlags) return null;
+    return computeKomplexFromContoursWithFlags(res.contoursWithFlags);
+  }
+
+  function computeKomplexForCode(codeString, algo = 'B') {
+    const params = paramsFromCode(codeString);
+    return computeKomplexForParams(params, algo);
+  }
+
+  function formatKomplexComment(metrics) {
+    if (!metrics) return null;
+    const KM = Number.isFinite(metrics.KM) ? Math.trunc(metrics.KM) : 0;
+    const BM = Number.isFinite(metrics.BM) ? Math.trunc(metrics.BM) : 0;
+    const KP = Number.isFinite(metrics.KP) ? Math.trunc(metrics.KP) : 0;
+    const BP = Number.isFinite(metrics.BP) ? Math.trunc(metrics.BP) : 0;
+    const KH = Number.isFinite(metrics.KH) ? round1(metrics.KH) : 0;
+    const BH = Number.isFinite(metrics.BH) ? round1(metrics.BH) : 0;
+    const KT = Number.isFinite(metrics.KT) ? round1(metrics.KT) : 0;
+    const BT = Number.isFinite(metrics.BT) ? round1(metrics.BT) : 0;
+    const KF = Number.isFinite(metrics.KF) ? round1(metrics.KF) : 0;
+    const BF = Number.isFinite(metrics.BF) ? round1(metrics.BF) : 0;
+    return `${KOMPLEX_PREFIX}${KOMPLEX_TAG};KM=${KM};BM=${BM};KP=${KP};BP=${BP};KH=${KH};BH=${BH};KT=${KT};BT=${BT};KF=${KF};BF=${BF}`;
+  }
+
+  function parseKomplexCommentText(text) {
+    if (!text) return null;
+    const idx = String(text).indexOf(KOMPLEX_PREFIX);
+    if (idx === -1) return null;
+    const sub = String(text).substring(idx).trim();
+    const parts = sub.split(';').filter(Boolean);
+    if (!parts.length) return null;
+    // parts[0] = 'KOMPLEX-V01'
+    const head = parts.shift();
+    if (!head || head.indexOf(KOMPLEX_PREFIX) !== 0) return null;
+
+    const out = {};
+    for (const p of parts) {
+      const eq = p.indexOf('=');
+      if (eq === -1) continue;
+      const k = p.substring(0, eq).trim();
+      const v = p.substring(eq + 1).trim();
+      if (!k) continue;
+      const num = Number(v);
+      if (!Number.isFinite(num)) continue;
+      out[k] = num;
+    }
+
+    // Támogatott kulcsok: KM/BM, KP/BP, KH/BH, KT/BT, KF/BF
+    const hasAny =
+      ('KM' in out) || ('BM' in out) ||
+      ('KP' in out) || ('BP' in out) ||
+      ('KH' in out) || ('BH' in out) ||
+      ('KT' in out) || ('BT' in out) ||
+      ('KF' in out) || ('BF' in out);
+
+    if (!hasAny) return null;
+
+    const hasKM = Number.isFinite(out.KM) || Number.isFinite(out.BM);
+    let KM = 0, BM = 0, KP = 0, BP = 0;
+
+    if (hasKM) {
+      KM = Number.isFinite(out.KM) ? Math.trunc(out.KM) : 0;
+      BM = Number.isFinite(out.BM) ? Math.trunc(out.BM) : 0;
+      KP = Number.isFinite(out.KP) ? Math.trunc(out.KP) : 0;
+      BP = Number.isFinite(out.BP) ? Math.trunc(out.BP) : 0;
+    } else {
+      // Régi (v82.6-v82.9): KP/BP a mennyiség volt.
+      KM = Number.isFinite(out.KP) ? Math.trunc(out.KP) : 0;
+      BM = Number.isFinite(out.BP) ? Math.trunc(out.BP) : 0;
+      KP = 0;
+      BP = 0;
+    }
+
+    return {
+      KM,
+      BM,
+      KP,
+      BP,
+      KH: Number.isFinite(out.KH) ? out.KH : 0,
+      BH: Number.isFinite(out.BH) ? out.BH : 0,
+      KT: Number.isFinite(out.KT) ? out.KT : 0,
+      BT: Number.isFinite(out.BT) ? out.BT : 0,
+      KF: Number.isFinite(out.KF) ? out.KF : 0,
+      BF: Number.isFinite(out.BF) ? out.BF : 0
+    };
+  }
+
+  function listKomplexFromJpegArrayBuffer(arrayBuffer) {
+    const bytes = new Uint8Array(arrayBuffer);
+    if (bytes.length < 4 || bytes[0] !== 0xFF || bytes[1] !== 0xD8) return [];
+    const out = [];
+    let i = 2;
+    while (i + 4 <= bytes.length) {
+      if (bytes[i] !== 0xFF) { i++; continue; }
+      const marker = bytes[i + 1];
+      if (marker === 0xD9 || marker === 0xDA) break; // EOI / SOS
+      const len = (bytes[i + 2] << 8) | bytes[i + 3];
+      if (len < 2 || i + 2 + len > bytes.length) break;
+
+      if (marker === 0xFE) { // COM
+        const start = i + 4;
+        const end   = i + 2 + len;
+        const comBytes = bytes.subarray(start, end);
+        const decoder  = new TextDecoder('utf-8');
+        const text     = decoder.decode(comBytes);
+        const k = parseKomplexCommentText(text);
+        if (k) out.push(k);
+      }
+      i += 2 + len;
+    }
+    return out;
+  }
+
+  function parseKomplexFromJpegArrayBuffer(arrayBuffer) {
+    const ks = listKomplexFromJpegArrayBuffer(arrayBuffer);
+    return ks.length ? ks[ks.length - 1] : null; // legutolsó a legfrissebb
+  }
+
+  function replaceKomplexInJpegArrayBuffer(arrayBuffer, metrics) {
+    const commentText = formatKomplexComment(metrics);
+    if (!commentText) return new Blob([new Uint8Array(arrayBuffer)], { type: 'image/jpeg' });
+
+    const bytes = new Uint8Array(arrayBuffer);
+    if (bytes.length < 4 || bytes[0] !== 0xFF || bytes[1] !== 0xD8) {
+      return new Blob([bytes], { type: 'image/jpeg' });
+    }
+
+    // 1) KOMPLEX kommentek kiszűrése (SOS előtt)
+    const kept = [];
+    kept.push(0xFF, 0xD8);
+    let i = 2;
+    while (i + 4 <= bytes.length) {
+      if (bytes[i] !== 0xFF) { break; }
+      const marker = bytes[i + 1];
+
+      if (marker === 0xDA) { // SOS
+        kept.push(...bytes.subarray(i));
+        i = bytes.length;
+        break;
+      }
+      if (marker === 0xD9) { // EOI
+        kept.push(0xFF, 0xD9);
+        i += 2;
+        break;
+      }
+
+      const len = (bytes[i + 2] << 8) | bytes[i + 3];
+      if (len < 2 || i + 2 + len > bytes.length) {
+        return new Blob([bytes], { type: 'image/jpeg' });
+      }
+
+      const segStart = i;
+      const segEnd = i + 2 + len;
+
+      if (marker === 0xFE) { // COM
+        const start = i + 4;
+        const end   = segEnd;
+        const comBytes = bytes.subarray(start, end);
+        const decoder  = new TextDecoder('utf-8');
+        const text     = decoder.decode(comBytes);
+        if (text.indexOf(KOMPLEX_PREFIX) !== -1) {
+          i = segEnd;
+          continue;
+        }
+      }
+
+      kept.push(...bytes.subarray(segStart, segEnd));
+      i = segEnd;
+    }
+    if (i < bytes.length) kept.push(...bytes.subarray(i));
+
+    // 2) Új KOMPLEX komment beszúrása SOI után
+    const encoder = new TextEncoder();
+    const commentBytes = encoder.encode(commentText);
+    const len = commentBytes.length + 2;
+
+    const keptBytes = new Uint8Array(kept);
+    const newBytes = new Uint8Array(keptBytes.length + commentBytes.length + 4);
+    let o = 0;
+
+    newBytes[o++] = 0xFF;
+    newBytes[o++] = 0xD8;
+
+    newBytes[o++] = 0xFF;
+    newBytes[o++] = 0xFE;
+    newBytes[o++] = (len >> 8) & 0xFF;
+    newBytes[o++] = len & 0xFF;
+    newBytes.set(commentBytes, o);
+    o += commentBytes.length;
+
+    newBytes.set(keptBytes.subarray(2), o);
+
+    return new Blob([newBytes], { type: 'image/jpeg' });
   }
 
 
@@ -2217,6 +2641,14 @@ PehelyCore.segmentToPolys = segmentToPolys;
 
   PehelyCore.listPehelyCodesFromJpegArrayBuffer = listPehelyCodesFromJpegArrayBuffer;
   PehelyCore.replacePehelyCodeInJpegArrayBuffer = replacePehelyCodeInJpegArrayBuffer;
+  PehelyCore.listKomplexFromJpegArrayBuffer = listKomplexFromJpegArrayBuffer;
+  PehelyCore.parseKomplexFromJpegArrayBuffer = parseKomplexFromJpegArrayBuffer;
+  PehelyCore.replaceKomplexInJpegArrayBuffer = replaceKomplexInJpegArrayBuffer;
+  PehelyCore.computeKomplexFromContoursWithFlags = computeKomplexFromContoursWithFlags;
+  PehelyCore.computeKomplexForParams = computeKomplexForParams;
+  PehelyCore.computeKomplexForCode = computeKomplexForCode;
+  PehelyCore.formatKomplexComment = formatKomplexComment;
+
   
 
   global.PehelyCore = PehelyCore;

@@ -371,6 +371,22 @@
             <option value="B" selected>B</option>
           </select>
         </label>
+        <label>
+          Rendezés:
+          <select id="sortBySelect">
+            <option value="orig" selected>Eredeti sorrend</option>
+            <option value="KM">KM</option>
+            <option value="BM">BM</option>
+            <option value="KP">KP</option>
+            <option value="BP">BP</option>
+            <option value="KH">KH</option>
+            <option value="BH">BH</option>
+            <option value="KT">KT</option>
+            <option value="BT">BT</option>
+            <option value="KF">KF</option>
+            <option value="BF">BF</option>
+          </select>
+        </label>
 </div>
 
       <div class="algo-row">
@@ -433,6 +449,8 @@
     computePolysForCode,
     createJpegBlobForCode,
     parseCodeFromJpegArrayBuffer,
+    parseKomplexFromJpegArrayBuffer,
+    computeKomplexForCode,
     addJpegCommentToArrayBuffer
   } = PC;
 
@@ -626,6 +644,38 @@
     }
   }
 
+  async function readMetaFromJpegFileHandle(fileHandle) {
+    try {
+      const file = await fileHandle.getFile();
+      const arrayBuffer = await file.arrayBuffer();
+      const raw = parseCodeFromJpegArrayBuffer(arrayBuffer);
+      if (!raw) return null;
+      const code = PC.upgradeCodeToCurrent(raw);
+      let komplex = null;
+      try { komplex = parseKomplexFromJpegArrayBuffer(arrayBuffer); } catch {}
+      return { code, komplex, file };
+    } catch (e) {
+      console.warn('Nem sikerült a JPG beolvasása:', e);
+      return null;
+    }
+  }
+
+  async function readMetaFromJpegFile(file) {
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const raw = parseCodeFromJpegArrayBuffer(arrayBuffer);
+      if (!raw) return null;
+      const code = PC.upgradeCodeToCurrent(raw);
+      let komplex = null;
+      try { komplex = parseKomplexFromJpegArrayBuffer(arrayBuffer); } catch {}
+      return { code, komplex };
+    } catch (e) {
+      console.warn('Nem sikerült a JPG beolvasása:', e);
+      return null;
+    }
+  }
+
+
 
   // ====== HAVAZO adatszerkezetek ======
 
@@ -639,6 +689,8 @@
   let items = [];                // { code, fileHandle|null, imgURL, quantity, isVirtual, cardElem, qtyInput }
   const itemsByCode = new Map(); // code -> item
   const quantitiesFromJson = new Map(); // code -> count (0 is megőrződik)
+
+  let currentSortKey = 'orig';
 
   // Summary elemek
   const summaryAllTypesEl      = document.getElementById('summaryAllTypes');
@@ -767,7 +819,23 @@
     item.cardElem.classList.toggle('has-jpg', !item.isVirtual);
   }
 
+
+  function applySortInPlace() {
+    const key = currentSortKey || 'orig';
+    if (key === 'orig') {
+      items.sort((a,b) => (a.originalIndex ?? 0) - (b.originalIndex ?? 0));
+      return;
+    }
+    items.sort((a, b) => {
+      const av = a && a.komplex && Number.isFinite(a.komplex[key]) ? a.komplex[key] : Infinity;
+      const bv = b && b.komplex && Number.isFinite(b.komplex[key]) ? b.komplex[key] : Infinity;
+      if (av !== bv) return av - bv;
+      return (a.originalIndex ?? 0) - (b.originalIndex ?? 0);
+    });
+  }
+
 function refreshCardsGrid() {
+    applySortInPlace();
     cardsGrid.innerHTML = '';
     if (!items.length) {
       emptyMessage.style.display = 'block';
@@ -837,8 +905,10 @@ function refreshCardsGrid() {
       for (const file of (currentSelectedFiles || [])) {
         if (!file || !(file.name || '').toLowerCase().endsWith('.jpg')) continue;
 
-        const code = await readCodeFromJpegFile(file);
-        if (!code) continue;
+        const meta = await readMetaFromJpegFile(file);
+        if (!meta || !meta.code) continue;
+        const code = meta.code;
+        const komplex = meta.komplex;
 
         if (itemsByCode.has(code)) continue;
 
@@ -847,6 +917,8 @@ function refreshCardsGrid() {
 
         const item = {
           code,
+          komplex: komplex || null,
+          originalIndex: items.length,
           fileHandle: null,
           fileName: file.name,
           imgURL: url,
@@ -865,15 +937,18 @@ function refreshCardsGrid() {
     // Régi lista alapján hiányzók virtuális generálása (ugyanúgy, mint mappánál)
     const codesInJson = Array.from(quantitiesFromJson.keys());
     for (const code of codesInJson) {
-      const upgradedCode = (() => { try { return PC.upgradeCodeToCurrent(code); } catch { return code; } })();
+            const upgradedCode = (() => { try { return PC.upgradeCodeToCurrent(code); } catch { return code; } })();
       if (!itemsByCode.has(upgradedCode)) {
         try {
           const blob = await createJpegBlobForCode(upgradedCode, 'bordo');
           if (!blob) continue;
           const url = URL.createObjectURL(blob);
           const qty = quantitiesFromJson.get(upgradedCode) || 0;
+          const komplex = (() => { try { return computeKomplexForCode(upgradedCode, 'B'); } catch { return null; } })();
           const item = {
             code: upgradedCode,
+            komplex: komplex || null,
+            originalIndex: items.length,
             fileHandle: null,
             fileName: null,
             imgURL: url,
@@ -883,7 +958,7 @@ function refreshCardsGrid() {
             qtyInput: null
           };
           items.push(item);
-          itemsByCode.set(code, item);
+          itemsByCode.set(upgradedCode, item);
         } catch (e) {
           console.error('Virtuális kép generálási hiba:', e);
         }
@@ -1002,8 +1077,10 @@ async function scanCurrentFolder() {
         if (entry.kind === 'file' &&
             entry.name.toLowerCase().endsWith('.jpg')) {
 
-          const code = await readCodeFromJpegFileHandle(entry);
-          if (!code) continue;
+          const meta = await readMetaFromJpegFileHandle(entry);
+          if (!meta || !meta.code) continue;
+          const code = meta.code;
+          const komplex = meta.komplex;
 
           if (itemsByCode.has(code)) continue;
 
@@ -1012,7 +1089,9 @@ async function scanCurrentFolder() {
           const qty = quantitiesFromJson.has(code) ? quantitiesFromJson.get(code) : 1;
 
           const item = {
-            code: upgradedCode,
+            code,
+            komplex: komplex || null,
+            originalIndex: items.length,
             fileHandle: entry,
             imgURL: url,
             quantity: qty,
@@ -1034,8 +1113,11 @@ async function scanCurrentFolder() {
           const blob = await createJpegBlobForCode(code, 'bordo');
           if (!blob) continue;
           const url = URL.createObjectURL(blob);
+          const komplex = (() => { try { return computeKomplexForCode(code, 'B'); } catch { return null; } })();
           const item = {
-            code: upgradedCode,
+            code,
+            komplex: komplex || null,
+            originalIndex: items.length,
             fileHandle: null,
             imgURL: url,
             quantity: qty,
@@ -1845,12 +1927,13 @@ const jsonData = {
   window.addEventListener('load', () => {
     // Verzió (kívül-belül egységesen)
     const vEl = document.getElementById('appVersion');
-    const v = (PC && PC.VERSION) ? PC.VERSION : 'v81.1';
+    const v = (PC && PC.VERSION) ? PC.VERSION : 'v82.9';
     if (vEl) vEl.textContent = v;
     document.title = 'Rodé Lajos - HAVAZO ' + v;
 
     // DXF algoritmus választó + leírás
     const dxfAlgoSelect = document.getElementById('dxfAlgoSelect');
+    const sortBySelect = document.getElementById('sortBySelect');
     const dxfAlgoDesc = document.getElementById('dxfAlgoDesc');
     const DXF_ALGO_DESCS = {
       all: 'MIND: az összes algoritmussal külön DXF-et készít (A, B).',
@@ -1863,6 +1946,13 @@ const jsonData = {
     }
     if (dxfAlgoSelect) dxfAlgoSelect.addEventListener('change', refreshAlgoDesc);
     refreshAlgoDesc();
+
+    if (sortBySelect) {
+      sortBySelect.addEventListener('change', () => {
+        currentSortKey = sortBySelect.value || 'orig';
+        refreshCardsGrid();
+      });
+    }
 
 
     // GENERÁTOR gomb: host (iframe) módban fülváltás, különben navigáció.

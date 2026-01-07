@@ -31,7 +31,7 @@
   <p class="sub">
     Beolvassa a kiválasztott mappában lévő összes JPG/JPEG fájlt, kiolvassa a beágyazott PEHELY-kódot,
     és (ha kell) újraírja a fájlba az aktuális kódformátummal. A javítás közben minden régi, „PEHELY-” tartalmú komment törlésre kerül,
-    és csak az új kód marad.
+    és csak az új kód marad. A KOMPLEX komment (ha van / számolható) külön kerül eltárolásra.
   </p>
 
   <div class="row">
@@ -61,6 +61,16 @@
         <th style="width:92px">Kép</th>
         <th>Fájlnév</th>
         <th style="width:80px">Verzió</th>
+        <th style=\"width:48px\">KM</th>
+        <th style=\"width:48px\">BM</th>
+        <th style=\"width:48px\">KP</th>
+        <th style=\"width:48px\">BP</th>
+        <th style=\"width:68px\">KH</th>
+        <th style=\"width:68px\">BH</th>
+        <th style=\"width:86px\">KT</th>
+        <th style=\"width:86px\">BT</th>
+        <th style=\"width:68px\">KF</th>
+        <th style=\"width:68px\">BF</th>
         <th>PEHELY-kód</th>
         <th>Kikövetkeztethető kód</th>
         <th style="width:220px">Állapot</th>
@@ -89,7 +99,7 @@
     return;
   }
 
-  const CURRENT_TAG = (PC.CODE_FORMAT_TAG || 'V01');
+  const CURRENT_TAG = (PC.CODE_FORMAT_TAG || 'V03');
   envPill.textContent = `core: ${(PC.VERSION || '').toUpperCase()} | kód: ${CURRENT_TAG}`;
 
   let usingFSAccess = false;
@@ -161,7 +171,7 @@
     if (wantRename) reasons.push('A fájlnév nem az aktuális PEHELY-kódot tükrözi.');
 
     it.isProblem = (reasons.length > 0);
-    it.canFix = usingFSAccess && !!it.handle && !!it.targetCode && it.isProblem && (!!it.needsCommentFix || wantRename);
+    it.canFix = usingFSAccess && !!it.handle && !!it.targetCode && it.isProblem && (!!it.needsCommentFix || !!it.needsKomplexFix || wantRename);
 
     if (!it.isProblem) {
       if (!!it.nameMismatch && !renameOn) {
@@ -176,6 +186,16 @@
 
     if (it._cells) {
       it._cells.tdVer.textContent = it.versionTag || '';
+      it._cells.tdKM.textContent = it.kmText || '';
+      it._cells.tdBM.textContent = it.bmText || '';
+      it._cells.tdKP.textContent = it.kpText || '';
+      it._cells.tdBP.textContent = it.bpText || '';
+      it._cells.tdKH.textContent = it.khText || '';
+      it._cells.tdBH.textContent = it.bhText || '';
+      it._cells.tdKT.textContent = it.ktText || '';
+      it._cells.tdBT.textContent = it.btText || '';
+      it._cells.tdKF.textContent = it.kfText || '';
+      it._cells.tdBF.textContent = it.bfText || '';
       it._cells.tdCode.textContent = it.codeFound || '';
       it._cells.tdInf.textContent = it.codeInferred || '';
       it._cells.tdSt.innerHTML = it.statusHtml;
@@ -216,6 +236,46 @@
     tdVer.className = 'code';
     tdVer.textContent = it.versionTag || '';
 
+    const tdKM = document.createElement('td');
+    tdKM.className = 'code';
+    tdKM.textContent = it.kmText || '';
+
+    const tdBM = document.createElement('td');
+    tdBM.className = 'code';
+    tdBM.textContent = it.bmText || '';
+
+    const tdKP = document.createElement('td');
+    tdKP.className = 'code';
+    tdKP.textContent = it.kpText || '';
+
+    const tdBP = document.createElement('td');
+    tdBP.className = 'code';
+    tdBP.textContent = it.bpText || '';
+
+    const tdKH = document.createElement('td');
+    tdKH.className = 'code';
+    tdKH.textContent = it.khText || '';
+
+    const tdBH = document.createElement('td');
+    tdBH.className = 'code';
+    tdBH.textContent = it.bhText || '';
+
+    const tdKT = document.createElement('td');
+    tdKT.className = 'code';
+    tdKT.textContent = it.ktText || '';
+
+    const tdBT = document.createElement('td');
+    tdBT.className = 'code';
+    tdBT.textContent = it.btText || '';
+
+    const tdKF = document.createElement('td');
+    tdKF.className = 'code';
+    tdKF.textContent = it.kfText || '';
+
+    const tdBF = document.createElement('td');
+    tdBF.className = 'code';
+    tdBF.textContent = it.bfText || '';
+
     const tdCode = document.createElement('td');
     tdCode.className = 'code';
     tdCode.textContent = it.codeFound || '';
@@ -230,12 +290,22 @@
     tr.appendChild(tdImg);
     tr.appendChild(tdName);
     tr.appendChild(tdVer);
+    tr.appendChild(tdKM);
+    tr.appendChild(tdBM);
+    tr.appendChild(tdKP);
+    tr.appendChild(tdBP);
+    tr.appendChild(tdKH);
+    tr.appendChild(tdBH);
+    tr.appendChild(tdKT);
+    tr.appendChild(tdBT);
+    tr.appendChild(tdKF);
+    tr.appendChild(tdBF);
     tr.appendChild(tdCode);
     tr.appendChild(tdInf);
     tr.appendChild(tdSt);
 
     it._tr = tr;
-    it._cells = { tdName, tdVer, tdCode, tdInf, tdSt };
+    it._cells = { tdName, tdVer, tdKM, tdBM, tdKP, tdBP, tdKH, tdBH, tdKT, tdBT, tdKF, tdBF, tdCode, tdInf, tdSt };
     tbody.appendChild(tr);
   }
 
@@ -253,6 +323,19 @@
       nameMismatch: false,
       baseProblemReasons: [],
       needsCommentFix: false,
+      komplexInJpeg: null,
+      komplex: null,
+      needsKomplexFix: false,
+      kmText: '',
+      bmText: '',
+      kpText: '',
+      bpText: '',
+      khText: '',
+      bhText: '',
+      ktText: '',
+      btText: '',
+      kfText: '',
+      bfText: '',
       isProblem: false,
       canFix: false,
       statusHtml: '<span class=\"muted\">…</span>',
@@ -307,6 +390,50 @@
       }
 
       it.targetCode = target;
+
+      // KOMPLEX: külön JPG komment (KOMPLEX-...), rendezéshez / szűréshez.
+      let komplexInJpeg = null;
+      try {
+        komplexInJpeg = PC.parseKomplexFromJpegArrayBuffer(ab);
+      } catch (e) {
+        komplexInJpeg = null;
+      }
+      it.komplexInJpeg = komplexInJpeg;
+
+      let komplex = komplexInJpeg;
+      if (!komplex && target) {
+        try {
+          komplex = PC.computeKomplexForCode(target, 'B');
+        } catch (e) {
+          komplex = null;
+        }
+      }
+      it.komplex = komplex;
+
+      // Hiány esetén (ha számolható) írjuk majd vissza a fájlba.
+      const komplexNeedsFix = (!!target && !!komplex && (!komplexInJpeg || (komplexInJpeg && (Number(komplexInJpeg.KP || 0) === 0) && (Number(komplexInJpeg.BP || 0) === 0) && (Number(komplexInJpeg.KM || 0) + Number(komplexInJpeg.BM || 0) > 0))));
+      it.needsKomplexFix = komplexNeedsFix;
+
+      if (!komplexInJpeg) {
+        problemReasons.push('Nincs KOMPLEX adat a JPG-ben.');
+      } else if (komplexNeedsFix) {
+        problemReasons.push('A KOMPLEX adat hiányos (KP/BP).');
+      }
+
+      if (komplex) {
+        it.kmText = String(komplex.KM ?? '');
+        it.bmText = String(komplex.BM ?? '');
+        it.kpText = String(komplex.KP ?? '');
+        it.bpText = String(komplex.BP ?? '');
+        it.khText = Number.isFinite(komplex.KH) ? komplex.KH.toFixed(1) : '';
+        it.bhText = Number.isFinite(komplex.BH) ? komplex.BH.toFixed(1) : '';
+        it.ktText = Number.isFinite(komplex.KT) ? komplex.KT.toFixed(1) : '';
+        it.btText = Number.isFinite(komplex.BT) ? komplex.BT.toFixed(1) : '';
+        it.kfText = Number.isFinite(komplex.KF) ? komplex.KF.toFixed(1) : '';
+        it.bfText = Number.isFinite(komplex.BF) ? komplex.BF.toFixed(1) : '';
+      } else {
+        it.kpText = it.bpText = it.khText = it.bhText = it.ktText = it.btText = it.kfText = it.bfText = '';
+      }
 
       // Írás szükséges-e? (komment hiányzik / több van / nem kánonikus)
       it.needsCommentFix = (codes.length !== 1) || (raw !== null && target !== null && raw !== target) || (raw === null && target !== null);
@@ -453,7 +580,18 @@
         const fixedCode = it.targetCode;
 
         // Mindig tisztítunk és egyetlen kánonikus kommentet írunk vissza.
-        const newBlob = PC.replacePehelyCodeInJpegArrayBuffer(ab, fixedCode);
+        // Mindig tisztítunk és egyetlen kánonikus PEHELY kommentet írunk vissza.
+        let outBlob = PC.replacePehelyCodeInJpegArrayBuffer(ab, fixedCode);
+
+        // KOMPLEX: hiány esetén számoljuk ki és írjuk be.
+        if (it.needsKomplexFix) {
+          const komplex = PC.computeKomplexForCode(fixedCode, 'B');
+          if (!komplex) throw new Error('A KOMPLEX nem számolható ehhez a kódhoz.');
+          const ab2 = await PC.blobToArrayBuffer(outBlob);
+          outBlob = PC.replaceKomplexInJpegArrayBuffer(ab2, komplex);
+          it.komplexInJpeg = komplex;
+          it.komplex = komplex;
+        }
 
         const wantRename = renameOn && !!it.nameMismatch && !!it.desiredName;
         if (wantRename) {
@@ -499,9 +637,24 @@
             }
 
             // Tisztítsuk meg a célfájlt is, hogy ott is csak egyetlen kánonikus komment maradjon.
-            const exNewBlob = PC.replacePehelyCodeInJpegArrayBuffer(exAb, fixedCode);
+            let exOutBlob = PC.replacePehelyCodeInJpegArrayBuffer(exAb, fixedCode);
+
+            // KOMPLEX hiány esetén a célfájlba is írjuk be.
+            try {
+              const exKomplex = PC.parseKomplexFromJpegArrayBuffer(exAb);
+              if (!exKomplex) {
+                const komplex = PC.computeKomplexForCode(fixedCode, 'B');
+                if (komplex) {
+                  const exAb2 = await PC.blobToArrayBuffer(exOutBlob);
+                  exOutBlob = PC.replaceKomplexInJpegArrayBuffer(exAb2, komplex);
+                }
+              }
+            } catch (e) {
+              // nem kritikus
+            }
+
             const wEx = await existingHandle.createWritable();
-            await wEx.write(exNewBlob);
+            await wEx.write(exOutBlob);
             await wEx.close();
 
             // Régi duplikátum törlése
@@ -518,7 +671,7 @@
             // Új néven létrehozás + írás
             const newHandle = await dirHandle.getFileHandle(newName, { create: true });
             const wNew = await newHandle.createWritable();
-            await wNew.write(newBlob);
+            await wNew.write(outBlob);
             await wNew.close();
 
             // Régi törlése
@@ -531,7 +684,7 @@
           }
         } else {
           const writable = await it.handle.createWritable();
-          await writable.write(newBlob);
+          await writable.write(outBlob);
           await writable.close();
         }
 
@@ -542,6 +695,17 @@
         it.versionTag = versionTagFromCode(fixedCode);
         it.codesInJpeg = [fixedCode];
         it.needsCommentFix = false;
+        it.needsKomplexFix = false;
+        if (it.komplex) {
+          it.kpText = String(it.komplex.KP ?? it.komplex.KM ?? '');
+          it.bpText = String(it.komplex.BP ?? it.komplex.BM ?? '');
+          it.khText = Number.isFinite(it.komplex.KH) ? it.komplex.KH.toFixed(1) : (Number.isFinite(it.komplex.KP) ? it.komplex.KP.toFixed(1) : '');
+          it.bhText = Number.isFinite(it.komplex.BH) ? it.komplex.BH.toFixed(1) : (Number.isFinite(it.komplex.BP) ? it.komplex.BP.toFixed(1) : '');
+          it.ktText = Number.isFinite(it.komplex.KT) ? it.komplex.KT.toFixed(1) : '';
+          it.btText = Number.isFinite(it.komplex.BT) ? it.komplex.BT.toFixed(1) : '';
+          it.kfText = Number.isFinite(it.komplex.KF) ? it.komplex.KF.toFixed(1) : '';
+          it.bfText = Number.isFinite(it.komplex.BF) ? it.komplex.BF.toFixed(1) : '';
+        }
         it.baseProblemReasons = [];
         it.desiredName = desiredFilenameForCode(fixedCode);
         it.nameMismatch = (!!it.desiredName && it.fileName !== it.desiredName);
