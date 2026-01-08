@@ -1,5 +1,5 @@
 /* ============================================================
- * PehelyCore v80.3
+ * PehelyCore
  * Közös, DOM-független (offline-barát) algoritmusok a
  *   - Hópehely Generátor
  *   - HAVAZO
@@ -18,336 +18,135 @@
   // Namespace (globális) – modul import nélkül, hogy file:// alatt is működjön.
   const PehelyCore = {};
 
-  // Verziók / konstansok
-  // KÖZPONTI VERZIÓ – a HTML-ek ezt olvassák ki.
-  PehelyCore.VERSION = "v83.0";
-  PehelyCore.CODE_FORMAT_VERSION = 1; // V01
-  PehelyCore.CODE_FORMAT_TAG = "V03";
-
-  const DXF_TARGET_SIZE = 100.0; // mm – a modell max kiterjedése export előtt
-  PehelyCore.DXF_TARGET_SIZE = DXF_TARGET_SIZE;
+  const DEFAULTS = {
+    TRUNK_LENGTH: 50,
+    RUNOFF: 'Oo.',
+    RUNOFF_CODE: 'NE',
+    TIP_SCALE: 1,
+    MIN_RECT_MM: 0,
+    ARM_COUNT: 6,
+    BRANCH_ANGLE_DEG: 0,
+    RECT_ASPECT_PERCENT: 0,
+    SPACING_PERCENT: 0,
+    REDUCTION_PERCENT: 0,
+    TIP_MODE: 0,
+    TRAPEZ: 0,
+    PROFILE_MODE: 'TR',
+    TRAPEZ_CODE: '000',
+    COLLINEAR_EPS: 1e-9
+  };
 
   // ============================================================
-  //  DXF író (egységesítve) – v80.3
+  //  Exports (egyetlen kupacban)
+  // ============================================================
+  function initExports() {
+    PehelyCore.ecosystemVersion = "v83.5";
+    PehelyCore.pehelyCodeVersion = "V03";
+    PehelyCore.komplexCodeVersion = "V03";
+
+    PehelyCore.logError = logError;
+    PehelyCore.saveFileWithPickerOrDownload = saveFileWithPickerOrDownload;
+    PehelyCore.DXF_TARGET_SIZE = DXF_TARGET_SIZE;
+    PehelyCore.TRUNK_LENGTH = DEFAULTS.TRUNK_LENGTH;
+
+    // Kodformatum / parameterek
+    PehelyCore.getCodeFormatVersion = getCodeFormatVersion;
+    PehelyCore.upgradeCodeToCurrent = upgradeCodeToCurrent;
+    PehelyCore.paramsFromCode = paramsFromCode;
+    PehelyCore.buildCodeFromParams = buildCodeFromParams;
+
+    // Geometria / poligonok
+    PehelyCore.scalePolygon = scalePolygon;
+    PehelyCore.segmentToPolygons = segmentToPolygons;
+    PehelyCore.computePolygonsForParams = computePolygonsForParams;
+    PehelyCore.computePolygonsForCode = computePolygonsForCode;
+    PehelyCore.buildSingleTreeSegments = buildSingleTreeSegments;
+    PehelyCore.buildSnowflakeSegments = buildSnowflakeSegments;
+    PehelyCore.makeRectFromBase = makeRectFromBase;
+    PehelyCore.buildTentHexFromEdge = buildTentHexFromEdge;
+    PehelyCore.buildTrapHexFromEdge = buildTrapHexFromEdge;
+    PehelyCore.buildRegularHexFromEdge = buildRegularHexFromEdge;
+
+    // Konturok
+    PehelyCore.computeContoursForParams = computeContoursForParams;
+    PehelyCore.computeContoursForCode = computeContoursForCode;
+    PehelyCore.buildLaserContoursExact = buildLaserContoursExact;
+    PehelyCore.isPointInPolygon = isPointInPolygon;
+
+    // DXF + furat
+    PehelyCore.computeHangingHole = computeHangingHole;
+    PehelyCore.blockNameFromCode = blockNameFromCode;
+    PehelyCore.DxfWriter = DxfWriter;
+    PehelyCore.computeBboxFromContours = computeBboxFromContours;
+    PehelyCore.dxfWriteHeader = _dxfWriteHeader;
+    PehelyCore.dxfWriteTables = _dxfWriteTables;
+    PehelyCore.dxfBeginBlocks = _dxfBeginBlocks;
+    PehelyCore.dxfBeginEntities = _dxfBeginEntities;
+    PehelyCore.dxfEndSection = _dxfEndSection;
+    PehelyCore.dxfFinish = _dxfFinish;
+    PehelyCore.dxfAddFlakeBlock = dxfAddFlakeBlock;
+    PehelyCore.dxfAddInsert = dxfAddInsert;
+    PehelyCore.dxfAddSheetFrame = dxfAddSheetFrame;
+    PehelyCore.buildSingleFlakeDxf = buildSingleFlakeDxf;
+    PehelyCore.buildCollectionDxf = buildCollectionDxf;
+
+    // JPEG
+    PehelyCore.jpegAddComment = jpegAddComment;
+    PehelyCore.blobToArrayBuffer = blobToArrayBuffer;
+    PehelyCore.jpegCreateCodeBlob = jpegCreateCodeBlob;
+    PehelyCore.listPehelyCodesFromJpegArrayBuffer = listPehelyCodesFromJpegArrayBuffer;
+    PehelyCore.jpegParsePehelyCode = jpegParsePehelyCode;
+    PehelyCore.jpegReplacePehelyCode = jpegReplacePehelyCode;
+
+    // KOMPLEX
+    PehelyCore.listKomplexFromJpegArrayBuffer = listKomplexFromJpegArrayBuffer;
+    PehelyCore.parseKomplexFromJpegArrayBuffer = parseKomplexFromJpegArrayBuffer;
+    PehelyCore.replaceKomplexInJpegArrayBuffer = replaceKomplexInJpegArrayBuffer;
+    PehelyCore.formatKomplexComment = formatKomplexComment;
+    PehelyCore.computeKomplexFromContoursWithFlags = computeKomplexFromContoursWithFlags;
+    PehelyCore.computeKomplexForParams = computeKomplexForParams;
+    PehelyCore.computeKomplexForCode = computeKomplexForCode;
+  }
+
+  // ============================================================
+  //  Core setup: verziók, debug, általános helper-ek
+  // ============================================================
+
+  // Debug log (alapból csendes). Állítsd a konzolban: window.PEHELY_DEBUG = true
+  function dbgWarn(...args) { if (global.PEHELY_DEBUG && global.console && global.console.warn) global.console.warn(...args); }
+  function logError(...args) { if (global.PEHELY_DEBUG && global.console && global.console.error) global.console.error(...args); }
+
+  /**
+   * Egységes mentő helper (Picker-mappa, ha van; egyébként Letöltések).
+   * A saveManager-t továbbra is a HTML-ek adják (DOM/API környezetfüggő).
+   */
+  async function saveFileWithPickerOrDownload(saveManager, suggestedName, mimeType, data) {
+    if (!saveManager || typeof saveManager.saveMany !== 'function') {
+      throw new Error('saveFileWithPickerOrDownload: hiányzik a saveManager.saveMany(files)');
+    }
+    const blob = (data instanceof Blob) ? data : new Blob([data], { type: mimeType });
+    await saveManager.saveMany([{ name: suggestedName, blob }]);
+  }
+
+  // Verziók / konstansok
+  // KÖZPONTI VERZIÓ – a HTML-ek ezt olvassák ki.
+
+  const DXF_TARGET_SIZE = 100.0; // mm – a modell max kiterjedése export előtt
+
+  // ============================================================
+  //  DXF író (egységesítve)
   //  Cél: a DXF string összeállítása ne legyen duplikálva a HTML-ekben.
   // ============================================================
 
-  class DxfWriter {
-    constructor() {
-      this._parts = [];
-      this._nl = '\r\n';
-    }
-    add(code, value) {
-      // A DXF formátum páros sorokból áll: group code + value
-      this._parts.push(String(code), this._nl, String(value), this._nl);
-    }
-    toString() {
-      return this._parts.join('');
-    }
-  }
 
-  function _dxfWriteHeader(writer) {
-    writer.add(0, 'SECTION');
-    writer.add(2, 'HEADER');
-    writer.add(0, 'ENDSEC');
-  }
+  // ============================================================
+  //  Kódformátum, paraméterek, geometria és poligonok
+  // ============================================================
 
-  function _dxfWriteTables(writer, opts = {}) {
-    const includeLtype = (opts.includeLtype !== false);
-
-    writer.add(0, 'SECTION');
-    writer.add(2, 'TABLES');
-
-    if (includeLtype) {
-      // LTYPE: CONTINUOUS
-      writer.add(0, 'TABLE');
-      writer.add(2, 'LTYPE');
-      writer.add(70, 1);
-      writer.add(0, 'LTYPE');
-      writer.add(2, 'CONTINUOUS');
-      writer.add(70, 0);
-      writer.add(3, 'Solid line');
-      writer.add(72, 65);
-      writer.add(73, 0);
-      writer.add(40, 0.0);
-      writer.add(0, 'ENDTAB');
-    }
-
-    // LAYER: 0 + kontúrok + keret + furat
-    writer.add(0, 'TABLE');
-    writer.add(2, 'LAYER');
-    writer.add(70, 5);
-
-    function layer(name, color) {
-      writer.add(0, 'LAYER');
-      writer.add(2, name);
-      writer.add(70, 0);
-      writer.add(62, color);
-      writer.add(6, 'CONTINUOUS');
-    }
-
-    layer('0', 7);
-    layer('Kulso_kontur', 7);
-    layer('Belso_kontur', 5);
-    layer('Furat', 1);
-    layer('Keret', 3);
-
-    writer.add(0, 'ENDTAB');
-    writer.add(0, 'ENDSEC');
-  }
-
-  function _dxfBeginBlocks(writer) {
-    writer.add(0, 'SECTION');
-    writer.add(2, 'BLOCKS');
-  }
-
-  function _dxfEndSection(writer) {
-    writer.add(0, 'ENDSEC');
-  }
-
-  function _dxfBeginEntities(writer) {
-    writer.add(0, 'SECTION');
-    writer.add(2, 'ENTITIES');
-  }
-
-  function _dxfFinish(writer) {
-    writer.add(0, 'ENDSEC');
-    writer.add(0, 'EOF');
-  }
-
-  function _pointsEqual(a, b) {
-    return a && b && a[0] === b[0] && a[1] === b[1];
-  }
-
-  function _uniqueContourPoints(points) {
-    if (!points || points.length < 2) return [];
-    const pts = points.slice();
-    // A core kontúrok zártak (utolsó = első) – ezt DXF LWPOLYLINE-hoz egyedivé tesszük.
-    if (pts.length >= 2 && _pointsEqual(pts[0], pts[pts.length - 1])) {
-      pts.pop();
-    }
-    return pts;
-  }
-
-  function computeBboxFromContours(contoursWithFlags) {
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    for (const c of contoursWithFlags || []) {
-      const pts = (c && c.points) ? c.points : null;
-      if (!pts || pts.length < 2) continue;
-      const unique = _uniqueContourPoints(pts);
-      for (const p of unique) {
-        const x = p[0], y = p[1];
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
-      }
-    }
-    if (!Number.isFinite(minX)) return null;
-    return { minX, maxX, minY, maxY, width: (maxX - minX), height: (maxY - minY) };
-  }
-
-  function dxfAddFlakeBlock(writer, opts) {
-    const blockName = String(opts.blockName || 'PEHELY');
-    const contoursWithFlags = opts.contoursWithFlags || [];
-
-    const bbox = computeBboxFromContours(contoursWithFlags);
-    const cx = Number.isFinite(opts.centerX) ? opts.centerX : (bbox ? (bbox.minX + bbox.maxX) / 2 : 0);
-    const cy = Number.isFinite(opts.centerY) ? opts.centerY : (bbox ? (bbox.minY + bbox.maxY) / 2 : 0);
-
-    const includeHole = (opts.includeHole !== false);
-    let hole = opts.hole || null;
-    if (includeHole && !hole) {
-      const minRectMm = opts.minRectMm;
-      hole = computeHangingHole(contoursWithFlags, minRectMm);
-    }
-
-    writer.add(0, 'BLOCK');
-    writer.add(8, '0');
-    writer.add(2, blockName);
-    writer.add(70, 0);
-    writer.add(10, 0); writer.add(20, 0); writer.add(30, 0);
-    writer.add(3, blockName);
-    writer.add(1, '');
-
-    for (const c of contoursWithFlags) {
-      const pts = (c && c.points) ? c.points : null;
-      if (!pts || pts.length < 4) continue;
-      const unique = _uniqueContourPoints(pts);
-      if (unique.length < 3) continue;
-
-      writer.add(0, 'LWPOLYLINE');
-      writer.add(8, c.isOuter ? 'Kulso_kontur' : 'Belso_kontur');
-      writer.add(62, c.isOuter ? 7 : 5);
-      writer.add(90, unique.length);
-      writer.add(70, 1); // zárt
-
-      for (const p of unique) {
-        writer.add(10, (p[0] - cx).toFixed(4));
-        writer.add(20, (p[1] - cy).toFixed(4));
-      }
-    }
-
-    if (includeHole && hole) {
-      writer.add(0, 'CIRCLE');
-      writer.add(8, 'Furat');
-      writer.add(10, (Number(hole.x) - cx).toFixed(4));
-      writer.add(20, (Number(hole.y) - cy).toFixed(4));
-      writer.add(30, 0);
-      writer.add(40, Number(hole.radius).toFixed(4));
-    }
-
-    writer.add(0, 'ENDBLK');
-  }
-
-  function dxfAddInsert(writer, opts) {
-    writer.add(0, 'INSERT');
-    writer.add(8, String(opts.layer || '0'));
-    writer.add(2, String(opts.blockName));
-    writer.add(10, Number(opts.x || 0).toFixed(4));
-    writer.add(20, Number(opts.y || 0).toFixed(4));
-    writer.add(30, 0);
-    const s = Number.isFinite(opts.scale) ? opts.scale : 1;
-    writer.add(41, s); writer.add(42, s); writer.add(43, s);
-    writer.add(50, Number(opts.rotationDeg || 0).toFixed(4));
-  }
-
-  function dxfAddSheetFrame(writer, opts) {
-    const sheetW = Number(opts.sheetW) || 0;
-    const sheetH = Number(opts.sheetH) || 0;
-    const offsetDown = Number(opts.offsetDown) || 0; // pozitív: lefelé
-    const yTop = -offsetDown;
-    const yBot = -(offsetDown + sheetH);
-
-    writer.add(0, 'LWPOLYLINE');
-    writer.add(8, String(opts.layer || 'Keret'));
-    writer.add(90, 4);
-    writer.add(70, 1); // zárt
-
-    writer.add(10, (0).toFixed(4));
-    writer.add(20, (yTop).toFixed(4));
-    writer.add(10, (sheetW).toFixed(4));
-    writer.add(20, (yTop).toFixed(4));
-    writer.add(10, (sheetW).toFixed(4));
-    writer.add(20, (yBot).toFixed(4));
-    writer.add(10, (0).toFixed(4));
-    writer.add(20, (yBot).toFixed(4));
-  }
-
-  function buildSingleFlakeDxf(code, contoursWithFlags, minRectMm) {
-    const writer = new DxfWriter();
-    _dxfWriteHeader(writer);
-    _dxfWriteTables(writer, { includeLtype: true });
-    _dxfBeginBlocks(writer);
-
-    const blockName = blockNameFromCode(code);
-    dxfAddFlakeBlock(writer, { blockName, contoursWithFlags, minRectMm, includeHole: true });
-
-    _dxfEndSection(writer); // BLOCKS
-
-    _dxfBeginEntities(writer);
-    dxfAddInsert(writer, { blockName, x: 0, y: 0, layer: '0', scale: 1, rotationDeg: 0 });
-    _dxfFinish(writer);
-    return writer.toString();
-  }
-
-  function buildCollectionDxf(opts) {
-    const writer = new DxfWriter();
-    _dxfWriteHeader(writer);
-    _dxfWriteTables(writer, { includeLtype: true });
-    _dxfBeginBlocks(writer);
-
-    const blocks = opts && Array.isArray(opts.blocks) ? opts.blocks : [];
-    for (const b of blocks) {
-      if (!b || !b.blockName || !b.contoursWithFlags) continue;
-      dxfAddFlakeBlock(writer, {
-        blockName: b.blockName,
-        contoursWithFlags: b.contoursWithFlags,
-        centerX: b.centerX,
-        centerY: b.centerY,
-        minRectMm: b.minRectMm,
-        includeHole: (b.includeHole !== false),
-        hole: b.hole
-      });
-    }
-
-    _dxfEndSection(writer); // BLOCKS
-
-    _dxfBeginEntities(writer);
-
-    const frames = opts && Array.isArray(opts.frames) ? opts.frames : [];
-    for (const f of frames) {
-      if (!f) continue;
-      dxfAddSheetFrame(writer, f);
-    }
-
-    const inserts = opts && Array.isArray(opts.inserts) ? opts.inserts : [];
-    for (const ins of inserts) {
-      if (!ins || !ins.blockName) continue;
-      dxfAddInsert(writer, ins);
-    }
-
-    _dxfFinish(writer);
-    return writer.toString();
-  }
-
-  /**
-   * DXF BLOCK/INSERT név a PEHELY-kódból.
-   *
-   * Cél: a blokk neve legyen stabilan a kódhoz köthető (később visszakereshető),
-   * de DXF-kompatibilis karakterkészletet használjon.
-   *
-   * Szabály: minden nem [0-9A-Za-z_] karakter '_' lesz.
-   * (A kód jellemzően '-' és '.' karaktereket tartalmaz; ezeket '_' váltja.)
-   */
-  function blockNameFromCode(code) {
-    const s = String(code || '');
-    let out = '';
-    for (let i = 0; i < s.length; i++) {
-      const ch = s[i];
-      const isAZ = (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z');
-      const is09 = (ch >= '0' && ch <= '9');
-      if (isAZ || is09 || ch === '_') out += ch;
-      else out += '_';
-    }
-    out = out.replace(/_+/g, '_').replace(/^_+|_+$/g, '');
-    return out || 'PEHELY';
-  }
-  PehelyCore.blockNameFromCode = blockNameFromCode;
-  // DXF generálás (v80.3)
-  PehelyCore.DxfWriter = DxfWriter;
-  PehelyCore.computeBboxFromContours = computeBboxFromContours;
-  PehelyCore.dxfWriteHeader = _dxfWriteHeader;
-  PehelyCore.dxfWriteTables = _dxfWriteTables;
-  PehelyCore.dxfBeginBlocks = _dxfBeginBlocks;
-  PehelyCore.dxfBeginEntities = _dxfBeginEntities;
-  PehelyCore.dxfEndSection = _dxfEndSection;
-  PehelyCore.dxfFinish = _dxfFinish;
-  PehelyCore.dxfAddFlakeBlock = dxfAddFlakeBlock;
-  PehelyCore.dxfAddInsert = dxfAddInsert;
-  PehelyCore.dxfAddSheetFrame = dxfAddSheetFrame;
-  PehelyCore.buildSingleFlakeDxf = buildSingleFlakeDxf;
-  PehelyCore.buildCollectionDxf = buildCollectionDxf;
-
-
-function pointInPolygon(x, y, poly) {
-    let inside = false;
-    const n = poly.length;
-    for (let i = 0, j = n - 1; i < n; j = i++) {
-      const xi = poly[i][0], yi = poly[i][1];
-      const xj = poly[j][0], yj = poly[j][1];
-      const intersect =
-        ((yi > y) !== (yj > y)) &&
-        (x < (xj - xi) * (y - yi) / (yj - yi + 1e-12) + xi);
-      if (intersect) inside = !inside;
-    }
-    return inside;
-  }
-
-function scalePolygon(poly, scale) {
-    if (!poly || poly.length < 2 || scale === 1) return poly;
-    const unique = poly.slice(0, poly.length - 1);
-    if (!unique.length) return poly;
+function scalePolygon(polygon, scale) {
+    if (!polygon || polygon.length < 2 || scale === 1) return polygon;
+    const unique = polygon.slice(0, polygon.length - 1);
+    if (!unique.length) return polygon;
 
     let cx = 0, cy = 0;
     for (const [x, y] of unique) { cx += x; cy += y; }
@@ -364,25 +163,51 @@ function scalePolygon(poly, scale) {
 
 
 function trapezCodeFromValue(trapezVal) {
-    const v = Number.isFinite(trapezVal) ? trapezVal : 0;
+    const v = Number.isFinite(trapezVal) ? trapezVal : DEFAULTS.TRAPEZ;
     const scaled = Math.round(Math.abs(v) * 10);
     const two = String(scaled).padStart(2, '0');
-    if (scaled === 0) return '000';
+    if (scaled === 0) return DEFAULTS.TRAPEZ_CODE;
     return (v < 0 ? 'n' : 'p') + two;
   }
 
   function trapezValueFromCode(trapezCode) {
-    if (!trapezCode || typeof trapezCode !== 'string') return 0;
+    if (!trapezCode || typeof trapezCode !== 'string') return DEFAULTS.TRAPEZ;
     const s = trapezCode.trim();
-    if (s.length !== 3) return 0;
+    if (s.length !== 3) return DEFAULTS.TRAPEZ;
     const signCh = s[0];
     const digits = parseInt(s.slice(1), 10);
-    if (!Number.isFinite(digits)) return 0;
+    if (!Number.isFinite(digits)) return DEFAULTS.TRAPEZ;
     const mag = digits / 10;
-    if (signCh === '0') return 0;
+    if (signCh === '0') return DEFAULTS.TRAPEZ;
     if (signCh === 'm' || signCh === 'M' || signCh === 'n' || signCh === 'N') return -mag;
     if (signCh === 'p' || signCh === 'P') return mag;
-    return 0;
+    return DEFAULTS.TRAPEZ;
+  }
+
+function normalizeParams(p) {
+    const src = (p && typeof p === 'object') ? p : {};
+    const num = (v, fallback) => {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : fallback;
+    };
+    return {
+      ...src,
+      branchAngleDeg:    num(src.branchAngleDeg, DEFAULTS.BRANCH_ANGLE_DEG),
+      rectAspectPercent: num(src.rectAspectPercent, DEFAULTS.RECT_ASPECT_PERCENT),
+      spacingPercent:    num(src.spacingPercent, DEFAULTS.SPACING_PERCENT),
+      reductionPercent:  num(src.reductionPercent, DEFAULTS.REDUCTION_PERCENT),
+      tipMode:           num(src.tipMode, DEFAULTS.TIP_MODE),
+      tipScale:          num(src.tipScale, DEFAULTS.TIP_SCALE),
+      tipOnly:           !!src.tipOnly,
+      tipAtCenter:       !!src.tipAtCenter,
+      showTrunk:         !!src.showTrunk,
+      armCount:          num(src.armCount, DEFAULTS.ARM_COUNT),
+      minRectMm:         num(src.minRectMm, DEFAULTS.MIN_RECT_MM),
+      trapez:            num(src.trapez, DEFAULTS.TRAPEZ),
+      profileMode:       (src.profileMode === 'HO') ? 'HO' : DEFAULTS.PROFILE_MODE,
+      growSmallRects:    !!src.growSmallRects,
+      runoff:            src.runoff || DEFAULTS.RUNOFF
+    };
   }
 
 
@@ -418,8 +243,8 @@ function paramsFromCode(codeString) {
     // V49+:       angle-ratio-space-red-tip-runoff-tipScale-tipOnly-tipCenter-trunk-arms-minRect-grow
     // V82+ (V02): angle-ratio-space-red-tip-runoff-tipScale-tipOnly-tipCenter-trunk-arms-minRect-trapez-profile-grow
     let angleStr, ratioStr, spaceStr, redStr;
-    let tipCode, runoffCode = 'NE', tipScaleStr, tipOnlyFlag, tipCenterFlag, trunkFlag, armsStr, minRectStr;
-    let trapezCode = '000', profileMode = 'TR', growFlag;
+    let tipCode, runoffCode = DEFAULTS.RUNOFF_CODE, tipScaleStr, tipOnlyFlag, tipCenterFlag, trunkFlag, armsStr, minRectStr;
+    let trapezCode = DEFAULTS.TRAPEZ_CODE, profileMode = DEFAULTS.PROFILE_MODE, growFlag;
 
     if (parts.length === 12) {
       // Régi (nincs lefutás és nincs trapéz)
@@ -457,7 +282,7 @@ function paramsFromCode(codeString) {
        armsStr, minRectStr, trapezCode, profileMode, growFlag] = parts.slice(0, 15);
     }
 
-    
+
     // V02/V03 kompatibilitás: a profil token (TR/HO) és a 3-karakteres trapez-kód (n/p/0..)
     // egyes korábbi mentésekben felcserélődhetett.
     const _isProfileToken = (s) => (s === 'TR' || s === 'HO');
@@ -465,15 +290,14 @@ function paramsFromCode(codeString) {
     if (_isProfileToken(trapezCode) && _isTrapezCode(profileMode)) {
       const tmp = trapezCode; trapezCode = profileMode; profileMode = tmp;
     }
-trapezCode = trapezCode || '000';
-    profileMode = (profileMode === 'HO') ? 'HO' : 'TR';
+    profileMode = (profileMode === 'HO') ? 'HO' : DEFAULTS.PROFILE_MODE;
 
-    const angle   = parseFloat(angleStr) || 0;
-    const ratio   = parseFloat(ratioStr) || 0;
-    const spacing = parseFloat(spaceStr) || 0;
-    const red     = parseFloat(redStr)   || 0;
+    const angle   = parseFloat(angleStr);
+    const ratio   = parseFloat(ratioStr);
+    const spacing = parseFloat(spaceStr);
+    const red     = parseFloat(redStr);
 
-    let tipMode = 0;
+    let tipMode = DEFAULTS.TIP_MODE;
     if      (tipCode === '3S') tipMode = 1;
     else if (tipCode === 'YY') tipMode = 2;
     else if (tipCode === '6S') tipMode = 3;
@@ -488,46 +312,44 @@ trapezCode = trapezCode || '000';
       switch (code) {
         case 'PO': return '.oO';
         case 'NU': return 'ooo';
-        case 'PP': return '.o.';
         case 'VA': return 'oOo';
         case 'VB': return 'OoO';
-        case 'RR': return 'OOO';
-        case 'EE': return '...';
         case 'NE':
-        default:   return 'Oo.';
+        default:   return DEFAULTS.RUNOFF;
       }
     })(runoffCode);
 
-    return {
+    return normalizeParams({
       branchAngleDeg:    angle,
       rectAspectPercent: ratio,
       spacingPercent:    spacing,
       reductionPercent:  red,
       tipMode,
-      tipScale:          Number.isFinite(tipScale) ? tipScale : 1,
+      tipScale:          tipScale,
       tipOnly:           (tipOnlyFlag   === 'Y'),
       tipAtCenter:       (tipCenterFlag === 'Y'),
       showTrunk:         (trunkFlag     === 'Y'),
-      armCount:          Number.isFinite(arms) ? arms : 6,
-      minRectMm:         Number.isFinite(minRectMm) ? minRectMm : 0,
-      trapez:            Number.isFinite(trapezVal) ? trapezVal : 0,
+      armCount:          arms,
+      minRectMm:         minRectMm,
+      trapez:            trapezVal,
       profileMode:       profileMode,
       growSmallRects:    (growFlag === 'Y'),
       runoff:            runoff
-    };
+    });
   }
 
 function buildCodeFromParams(p) {
-    const angleStr   = Math.round(p.branchAngleDeg).toString();
-    const ratioStr   = Math.round(p.rectAspectPercent).toString();
-    const spacingStr = Math.round(p.spacingPercent).toString();
-    const redStr     = Math.round(p.reductionPercent).toString();
+    const params = normalizeParams(p);
+    const angleStr   = Math.round(params.branchAngleDeg).toString();
+    const ratioStr   = Math.round(params.rectAspectPercent).toString();
+    const spacingStr = Math.round(params.spacingPercent).toString();
+    const redStr     = Math.round(params.reductionPercent).toString();
 
     let tipCode = '0S';
-    if      (p.tipMode === 1) tipCode = '3S';
-    else if (p.tipMode === 2) tipCode = 'YY';
-    else if (p.tipMode === 3) tipCode = '6S';
-    else if (p.tipMode === 4) tipCode = '4S';
+    if      (params.tipMode === 1) tipCode = '3S';
+    else if (params.tipMode === 2) tipCode = 'YY';
+    else if (params.tipMode === 3) tipCode = '6S';
+    else if (params.tipMode === 4) tipCode = '4S';
 
     // Lefutás kód (v48): a Végforma után
     const runoffCode = (function(mode){
@@ -536,42 +358,43 @@ function buildCodeFromParams(p) {
         case 'ooo': return 'NU';
         case 'oOo': return 'VA';
         case 'OoO': return 'VB';
-        case 'Oo.': return 'NE';
-        default:    return 'NE';
+        case 'Oo.': return DEFAULTS.RUNOFF_CODE;
+        default:    return DEFAULTS.RUNOFF_CODE;
       }
-    })(p.runoff || 'Oo.');
+    })(params.runoff);
 
-    const tipScaleStr   = (Number.isFinite(p.tipScale) ? p.tipScale : 1.0).toFixed(2);
-    const tipOnlyFlag   = p.tipOnly     ? 'Y' : 'N';
-    const tipCenterFlag = p.tipAtCenter ? 'Y' : 'N';
-    const trunkFlag     = p.showTrunk   ? 'Y' : 'N';
+    const tipScaleStr   = params.tipScale.toFixed(2);
+    const tipOnlyFlag   = params.tipOnly     ? 'Y' : 'N';
+    const tipCenterFlag = params.tipAtCenter ? 'Y' : 'N';
+    const trunkFlag     = params.showTrunk   ? 'Y' : 'N';
 
-    const armsStr     = Math.round(p.armCount).toString();
-    const minRectStr  = (Number.isFinite(p.minRectMm) ? p.minRectMm : 0).toFixed(1);
-    const trapezCode = trapezCodeFromValue(p.trapez);
-    const profileMode = (p.profileMode === 'HO') ? 'HO' : 'TR';
-    const growFlag    = p.growSmallRects ? 'Y' : 'N';
+    const armsStr     = Math.round(params.armCount).toString();
+    const minRectStr  = params.minRectMm.toFixed(1);
+    const trapezCode = trapezCodeFromValue(params.trapez);
+    const profileMode = (params.profileMode === 'HO') ? 'HO' : DEFAULTS.PROFILE_MODE;
+    const growFlag    = params.growSmallRects ? 'Y' : 'N';
 
     const body = `${angleStr}-${ratioStr}-${spacingStr}-${redStr}-${tipCode}-${runoffCode}-${tipScaleStr}-${tipOnlyFlag}-${tipCenterFlag}-${trunkFlag}-${armsStr}-${minRectStr}-${profileMode}-${trapezCode}-${growFlag}`;
 
-    return `${PehelyCore.CODE_FORMAT_TAG}-${body}`;
+    return `${PehelyCore.pehelyCodeVersion}-${body}`;
   }
 
 function buildSingleTreeSegments(params) {
+    const normalized = normalizeParams(params);
     const segments = [];
 
-    const trunkLength = 50;
-    const aspect = Math.max(0.02, params.rectAspectPercent / 100.0);
+    const trunkLength = DEFAULTS.TRUNK_LENGTH;
+    const aspect = Math.max(0.02, normalized.rectAspectPercent / 100.0);
     const trunkWidth = trunkLength * aspect;
 
     const trunkAngle = Math.PI / 2;
-    const spacing = params.spacingPercent;
-    const angleOffset = params.branchAngleDeg * Math.PI / 180.0;
-    const reduction = Math.max(0, Math.min(0.95, params.reductionPercent / 100.0));
-    const tipMode = params.tipMode;
-    const tipScale = Number.isFinite(params.tipScale) ? params.tipScale : 1;
+    const spacing = normalized.spacingPercent;
+    const angleOffset = normalized.branchAngleDeg * Math.PI / 180.0;
+    const reduction = Math.max(0, Math.min(0.95, normalized.reductionPercent / 100.0));
+    const tipMode = normalized.tipMode;
+    const tipScale = normalized.tipScale;
 
-    const runoffMode = params.runoff || 'Oo.';
+    const runoffMode = normalized.runoff;
     const shrink = 1 - reduction;
 
     // Lefutás: ugyanazt a logikát alkalmazzuk a törzs menti ágakra és az ágon belüli ágacskákra is.
@@ -671,8 +494,9 @@ function buildSingleTreeSegments(params) {
   }
 
 function buildSnowflakeSegments(params) {
-    const baseSegs = buildSingleTreeSegments(params);
-    const arms = Math.max(3, params.armCount);
+    const normalized = normalizeParams(params);
+    const baseSegs = buildSingleTreeSegments(normalized);
+    const arms = Math.max(3, normalized.armCount);
     const all = [];
     const twoPi = 2 * Math.PI;
 
@@ -751,22 +575,22 @@ function buildTentHexFromEdge(p1, p2, dir, tipScale) {
     const B2 = [ B[0] + t.x, B[1] + t.y ];
     const C2 = [ C_ref[0] + t.x, C_ref[1] + t.y ];
 
-    const pts = [A, B, C, A2, B2, C2].map(p => [p[0], p[1]]);
+    const points = [A, B, C, A2, B2, C2].map(p => [p[0], p[1]]);
 
     let cx = 0, cy = 0;
-    for (const [x, y] of pts) { cx += x; cy += y; }
-    cx /= pts.length;
-    cy /= pts.length;
+    for (const [x, y] of points) { cx += x; cy += y; }
+    cx /= points.length;
+    cy /= points.length;
 
-    pts.sort((p, q) => {
+    points.sort((p, q) => {
       const angP = Math.atan2(p[1] - cy, p[0] - cx);
       const angQ = Math.atan2(q[1] - cy, q[0] - cx);
       return angP - angQ;
     });
 
-    const hexPoly = pts.slice();
-    hexPoly.push(hexPoly[0].slice());
-    return scalePolygon(hexPoly, tipScale);
+    const hexPolygon = points.slice();
+    hexPolygon.push(hexPolygon[0].slice());
+    return scalePolygon(hexPolygon, tipScale);
   }
 
 function buildTrapHexFromEdge(p1, p2, dir, tipScale) {
@@ -799,9 +623,9 @@ function buildTrapHexFromEdge(p1, p2, dir, tipScale) {
       ];
     }
 
-    const hexTrapPoly = local.map(([X,Y]) => toWorld(X,Y));
-    hexTrapPoly.push(hexTrapPoly[0].slice());
-    return scalePolygon(hexTrapPoly, tipScale);
+    const hexTrapPolygon = local.map(([X,Y]) => toWorld(X,Y));
+    hexTrapPolygon.push(hexTrapPolygon[0].slice());
+    return scalePolygon(hexTrapPolygon, tipScale);
   }
 
 function buildRegularHexFromEdge(p1, p2, dir, tipScale) {
@@ -831,9 +655,9 @@ function buildRegularHexFromEdge(p1, p2, dir, tipScale) {
       ];
     }
 
-    const hexPoly = local.map(([X,Y]) => toWorld(X,Y));
-    hexPoly.push(hexPoly[0].slice());
-    return scalePolygon(hexPoly, tipScale);
+    const hexPolygon = local.map(([X,Y]) => toWorld(X,Y));
+    hexPolygon.push(hexPolygon[0].slice());
+    return scalePolygon(hexPolygon, tipScale);
   }
 
 
@@ -858,15 +682,15 @@ function _scaleEdgeAboutMid(a, b, factor) {
     return _scaleEdgeAboutMid(a, b, f);
   }
 
-  function applyTrapezToRectPoly(rectPoly, trapezVal, minWidthModel) {
+  function applyTrapezToRectPolygon(rectPolygon, trapezVal, minWidthModel) {
     const t = (typeof trapezVal === 'number' && isFinite(trapezVal)) ? trapezVal : 0;
     const absT = Math.abs(t);
     if (absT < 1e-9) {
       // Still enforce end-min-width if requested (harmless for normal rectangles)
       const mw = (typeof minWidthModel === 'number' && isFinite(minWidthModel)) ? minWidthModel : 0;
-      if (!(mw > 0) || !rectPoly || rectPoly.length < 4) return rectPoly;
-      const farA = rectPoly[0], farB = rectPoly[1];
-      const nearA = rectPoly[3], nearB = rectPoly[2];
+      if (!(mw > 0) || !rectPolygon || rectPolygon.length < 4) return rectPolygon;
+      const farA = rectPolygon[0], farB = rectPolygon[1];
+      const nearA = rectPolygon[3], nearB = rectPolygon[2];
       const [farA2, farB2] = _ensureEdgeMinWidth([farA[0], farA[1]], [farB[0], farB[1]], mw);
       const [nearA2, nearB2] = _ensureEdgeMinWidth([nearA[0], nearA[1]], [nearB[0], nearB[1]], mw);
       return [farA2, farB2, nearB2, nearA2, farA2];
@@ -876,8 +700,8 @@ function _scaleEdgeAboutMid(a, b, factor) {
     // A "szélesítés" mértéke: (1 + |Trapéz|)-szeres.
     const factor = 1 + absT;
 
-    const farA0 = rectPoly[0], farB0 = rectPoly[1];
-    const nearA0 = rectPoly[3], nearB0 = rectPoly[2];
+    const farA0 = rectPolygon[0], farB0 = rectPolygon[1];
+    const nearA0 = rectPolygon[3], nearB0 = rectPolygon[2];
 
     let farA = [farA0[0], farA0[1]];
     let farB = [farB0[0], farB0[1]];
@@ -925,19 +749,19 @@ function _scaleEdgeAboutMid(a, b, factor) {
     return [farA, farB, nearB, nearA, farA];
   }
 
-  function applyBarrelToRectPolys(rectPoly, barrelVal, minWidthModel) {
+  function applyBarrelToRectPolygons(rectPolygon, barrelVal, minWidthModel) {
     const t = (typeof barrelVal === 'number' && isFinite(barrelVal)) ? barrelVal : 0;
     const absT = Math.abs(t);
-    if (!rectPoly || rectPoly.length < 4) {
-      return { polys: [], farRect: rectPoly, nearRect: rectPoly };
+    if (!rectPolygon || rectPolygon.length < 4) {
+      return { polygons: [], farRect: rectPolygon, nearRect: rectPolygon };
     }
     if (absT < 1e-9) {
-      const r = applyTrapezToRectPoly(rectPoly, 0, minWidthModel);
-      return { polys: [r], farRect: r, nearRect: r };
+      const r = applyTrapezToRectPolygon(rectPolygon, 0, minWidthModel);
+      return { polygons: [r], farRect: r, nearRect: r };
     }
 
-    const farA0 = rectPoly[0], farB0 = rectPoly[1];
-    const nearA0 = rectPoly[3], nearB0 = rectPoly[2];
+    const farA0 = rectPolygon[0], farB0 = rectPolygon[1];
+    const nearA0 = rectPolygon[3], nearB0 = rectPolygon[2];
 
     const midA = [(farA0[0] + nearA0[0]) / 2, (farA0[1] + nearA0[1]) / 2];
     const midB = [(farB0[0] + nearB0[0]) / 2, (farB0[1] + nearB0[1]) / 2];
@@ -957,53 +781,53 @@ function _scaleEdgeAboutMid(a, b, factor) {
       tNear = -a; // nearHalf: a NEAR (külső) szélesedik
     }
 
-    const farRect  = applyTrapezToRectPoly(farHalf,  tFar,  minWidthModel);
-    const nearRect = applyTrapezToRectPoly(nearHalf, tNear, minWidthModel);
+    const farRect  = applyTrapezToRectPolygon(farHalf,  tFar,  minWidthModel);
+    const nearRect = applyTrapezToRectPolygon(nearHalf, tNear, minWidthModel);
 
-    return { polys: [farRect, nearRect], farRect, nearRect };
+    return { polygons: [farRect, nearRect], farRect, nearRect };
   }
 
 
-function segmentToPolys(seg, params) {
-    const polys = [];
-    const minWidthModel = (typeof params._minWidthModel === 'number' && isFinite(params._minWidthModel)) ? params._minWidthModel : 0;
-    const trapezVal = (typeof params.trapez === 'number' && isFinite(params.trapez)) ? params.trapez : 0;
-    const profileMode = (params && params.profileMode === 'HO') ? 'HO' : 'TR';
+function segmentToPolygons(seg, params) {
+    const polygons = [];
+    const minWidthModel = params._minWidthModel;
+    const trapezVal = params.trapez;
+    const profileMode = params.profileMode;
     const rect0 = makeRectFromBase(seg.bx, seg.by, seg.length, seg.width, seg.angle);
-    let mainPolys = [];
+    let mainPolygons = [];
     let mainRectFar = null;
     let mainRectNear = null;
 
     if (profileMode === 'HO') {
-      const res = applyBarrelToRectPolys(rect0, trapezVal, minWidthModel);
-      mainPolys = res.polys || [];
-      mainRectFar = res.farRect || (mainPolys[0] || null);
-      mainRectNear = res.nearRect || (mainPolys[mainPolys.length - 1] || null);
+      const res = applyBarrelToRectPolygons(rect0, trapezVal, minWidthModel);
+      mainPolygons = res.polygons || [];
+      mainRectFar = res.farRect || (mainPolygons[0] || null);
+      mainRectNear = res.nearRect || (mainPolygons[mainPolygons.length - 1] || null);
     } else {
-      const mainRect = applyTrapezToRectPoly(rect0, trapezVal, minWidthModel);
-      mainPolys = [mainRect];
+      const mainRect = applyTrapezToRectPolygon(rect0, trapezVal, minWidthModel);
+      mainPolygons = [mainRect];
       mainRectFar = mainRect;
       mainRectNear = mainRect;
     }
 
 
-    if (!mainRectFar || !mainRectNear || !mainPolys.length) {
-      return polys;
+    if (!mainRectFar || !mainRectNear || !mainPolygons.length) {
+      return polygons;
     }
 
     const tipMode     = seg.tipMode;
-    const tipScale    = (typeof seg.tipScale === 'number' && isFinite(seg.tipScale)) ? seg.tipScale : 1;
+    const tipScale    = seg.tipScale;
     const onlyTips    = !!params.tipOnly;
     const addBaseTips = !!params.tipAtCenter && !!seg.isTrunk;
     const showTrunk   = !!params.showTrunk;
 
     if (seg.isTrunk) {
-      if (showTrunk) polys.push(...mainPolys);
+      if (showTrunk) polygons.push(...mainPolygons);
     } else {
-      if (!onlyTips) polys.push(...mainPolys);
+      if (!onlyTips) polygons.push(...mainPolygons);
     }
 
-    if (tipMode === 0) return polys;
+    if (tipMode === 0) return polygons;
 
     const d = { x: Math.cos(seg.angle), y: Math.sin(seg.angle) };
 
@@ -1020,7 +844,7 @@ function segmentToPolys(seg, params) {
         const deltas = [Math.PI / 3, -Math.PI / 3];
         for (const delta of deltas) {
           const tipAngle = mainAngle + delta;
-          polys.push(makeRectFromBase(baseX, baseY, capLength, w, tipAngle));
+          polygons.push(makeRectFromBase(baseX, baseY, capLength, w, tipAngle));
         }
       }
       const tipBaseX = seg.bx + d.x * seg.length;
@@ -1028,7 +852,7 @@ function segmentToPolys(seg, params) {
       const capWidthUnified = addBaseTips ? Math.max(capWidthTop, capWidthBase) : capWidthTop;
       addYAt(tipBaseX, tipBaseY, seg.angle, capWidthUnified);
       if (addBaseTips) addYAt(seg.bx, seg.by, seg.angle + Math.PI, capWidthUnified);
-      return polys;
+      return polygons;
     }
 
     const p1_far  = mainRectFar[0];
@@ -1065,49 +889,50 @@ function segmentToPolys(seg, params) {
 
     if (tipMode === 1) {
       const hexTop = buildTentHexFromEdge(p1_far_tip,  p2_far_tip,  dTop,  tipScale);
-      if (hexTop) polys.push(hexTop);
+      if (hexTop) polygons.push(hexTop);
       if (addBaseTips) {
         const hexBase = buildTentHexFromEdge(p1_near_tip, p2_near_tip, dBase, tipScale);
-        if (hexBase) polys.push(hexBase);
+        if (hexBase) polygons.push(hexBase);
       }
     } else if (tipMode === 3) {
       const hexTop = buildRegularHexFromEdge(p1_far_tip,  p2_far_tip,  dTop,  tipScale);
-      if (hexTop) polys.push(hexTop);
+      if (hexTop) polygons.push(hexTop);
       if (addBaseTips) {
         const hexBase = buildRegularHexFromEdge(p1_near_tip, p2_near_tip, dBase, tipScale);
-        if (hexBase) polys.push(hexBase);
+        if (hexBase) polygons.push(hexBase);
       }
     } else if (tipMode === 4) {
       const hexTop = buildTrapHexFromEdge(p1_far_tip,  p2_far_tip,  dTop,  tipScale);
-      if (hexTop) polys.push(hexTop);
+      if (hexTop) polygons.push(hexTop);
       if (addBaseTips) {
         const hexBase = buildTrapHexFromEdge(p1_near_tip, p2_near_tip, dBase, tipScale);
-        if (hexBase) polys.push(hexBase);
+        if (hexBase) polygons.push(hexBase);
       }
     }
 
-    return polys;
+    return polygons;
   }
 
 
 
 
 
-function computePolysForParams(params) {
-    const segments = buildSnowflakeSegments(params);
+function computePolygonsForParams(params) {
+    const normalized = normalizeParams(params);
+    const segments = buildSnowflakeSegments(normalized);
     if (!segments.length) return null;
 
 
-    // Internal helper for segmentToPolys(): will be set to the correct value after scaleModelToMm is known.
-    params._minWidthModel = 0;
+    // Internal helper for segmentToPolygons(): will be set to the correct value after scaleModelToMm is known.
+    normalized._minWidthModel = 0;
 
     let minX0 = Infinity, maxX0 = -Infinity;
     let minY0 = Infinity, maxY0 = -Infinity;
 
     for (const seg of segments) {
-      const polys = segmentToPolys(seg, params);
-      for (const poly of polys) {
-        for (const [x,y] of poly) {
+      const polygons = segmentToPolygons(seg, normalized);
+      for (const polygon of polygons) {
+        for (const [x,y] of polygon) {
           if (x < minX0) minX0 = x;
           if (x > maxX0) maxX0 = x;
           if (y < minY0) minY0 = y;
@@ -1121,13 +946,13 @@ function computePolysForParams(params) {
     const size0   = Math.max(width0, height0) || 1;
 
     const scaleModelToMm = DXF_TARGET_SIZE / size0;
-    const minRectMm  = Math.max(0, params.minRectMm || 0);
-    const growSmall  = params.growSmallRects;
+    const minRectMm  = Math.max(0, normalized.minRectMm);
+    const growSmall  = normalized.growSmallRects;
     const minWidthModel = minRectMm > 0 ? (minRectMm / scaleModelToMm) : 0;
 
 
-    // Used by segmentToPolys() to apply trapez/min-width adjustments.
-    params._minWidthModel = minWidthModel;
+    // Used by segmentToPolygons() to apply trapez/min-width adjustments.
+    normalized._minWidthModel = minWidthModel;
 
     const adjustedSegments = [];
     for (const seg of segments) {
@@ -1146,10 +971,10 @@ function computePolysForParams(params) {
     let minY = Infinity, maxY = -Infinity;
 
     for (const seg of adjustedSegments) {
-      const polys = segmentToPolys(seg, params);
-      for (const poly of polys) {
-        rects.push(poly);
-        for (const [x,y] of poly) {
+      const polygons = segmentToPolygons(seg, normalized);
+      for (const polygon of polygons) {
+        rects.push(polygon);
+        for (const [x,y] of polygon) {
           if (x < minX) minX = x;
           if (x > maxX) maxX = x;
           if (y < minY) minY = y;
@@ -1163,12 +988,12 @@ function computePolysForParams(params) {
     const size   = Math.max(width, height) || 1;
     const scale  = DXF_TARGET_SIZE / size;
 
-    const scaledPolys = rects.map(poly =>
-      poly.map(([x,y]) => [ (x - minX) * scale, (y - minY) * scale ])
+    const scaledPolygons = rects.map(polygon =>
+      polygon.map(([x,y]) => [ (x - minX) * scale, (y - minY) * scale ])
     );
 
     return {
-      polys: scaledPolys,
+      polygons: scaledPolygons,
       minX: 0,
       maxX: width * scale,
       minY: 0,
@@ -1180,18 +1005,125 @@ function computePolysForParams(params) {
 
 
 
-function computePolysForCode(codeString) {
+function computePolygonsForCode(codeString) {
     const params = paramsFromCode(codeString);
-    return computePolysForParams(params);
+    return computePolygonsForParams(params);
   }
 
-function buildLaserContoursExact(scaledPolys) {
-    if (!scaledPolys || !scaledPolys.length) return [];
+  function _isCollinear(p0, p1, p2, eps) {
+    const v1x = p1[0] - p0[0];
+    const v1y = p1[1] - p0[1];
+    const v2x = p2[0] - p1[0];
+    const v2y = p2[1] - p1[1];
+    const n1 = Math.hypot(v1x, v1y);
+    const n2 = Math.hypot(v2x, v2y);
+    if (n1 < eps || n2 < eps) return true;
+    const cross = v1x * v2y - v1y * v2x;
+    return Math.abs(cross) <= eps * n1 * n2;
+  }
+
+  function _simplifyCollinearContour(points) {
+    if (!points || points.length < 4) return points;
+    const unique = points.slice(0, points.length - 1);
+    if (unique.length < 3) return points;
+
+    const eps = DEFAULTS.COLLINEAR_EPS;
+    let current = unique;
+    for (let iter = 0; iter < unique.length; iter++) {
+      let changed = false;
+      const next = [];
+      for (let i = 0; i < current.length; i++) {
+        const prev = current[(i - 1 + current.length) % current.length];
+        const curr = current[i];
+        const nextPt = current[(i + 1) % current.length];
+        if (_isCollinear(prev, curr, nextPt, eps)) {
+          changed = true;
+          continue;
+        }
+        next.push(curr);
+      }
+      if (!changed) break;
+      if (next.length < 3) return points;
+      current = next;
+    }
+
+    const closed = current.slice();
+    closed.push(current[0].slice());
+    return closed;
+  }
+
+  function _simplifyContours(contours) {
+    return (contours || []).map((c) => _simplifyCollinearContour(c));
+  }
+
+
+  // ============================================================
+  //  Kontúrok (high-level API + algoritmusok)
+  // ============================================================
+
+function computeContoursForParams(params, algo = 'B') {
+  const polygonRes = computePolygonsForParams(params);
+  if (!polygonRes || !polygonRes.polygons || !polygonRes.polygons.length) return null;
+
+    const contours = (algo === 'B') ? buildLaserContoursExact_B(polygonRes.polygons)
+                : buildLaserContoursExact(polygonRes.polygons);
+  if (!contours || !contours.length) return null;
+  const cleanedContours = _simplifyContours(contours);
+
+  // Külső kontúr: legnagyobb abszolút területű hurok.
+  let outerIndex = 0;
+  let maxAbsArea = -Infinity;
+
+  for (let i = 0; i < cleanedContours.length; i++) {
+    const contour = cleanedContours[i];
+    if (!contour || contour.length < 4) continue; // zárt poligon: min 3 + záró pont
+
+    // A buildLaserContoursExact záró pontot ad: hagyjuk ki az utolsót területhez.
+    const unique = contour.slice(0, contour.length - 1);
+    if (unique.length < 3) continue;
+
+    let area = 0;
+    for (let j = 0, k = unique.length - 1; j < unique.length; k = j++) {
+      const xi = unique[j][0], yi = unique[j][1];
+      const xj = unique[k][0], yj = unique[k][1];
+      area += (xj * yi - xi * yj);
+    }
+    area *= 0.5;
+
+    const absArea = Math.abs(area);
+    if (absArea > maxAbsArea) {
+      maxAbsArea = absArea;
+      outerIndex = i;
+    }
+  }
+
+  const contoursWithFlags = cleanedContours.map((c, idx) => ({
+    points: c,
+    isOuter: idx === outerIndex
+  }));
+
+  return { contoursWithFlags };
+}
+
+/**
+ * Kontúrok számítása PEHELY-kódból.
+ * Régi (lefutás nélküli) kódoknál automatikusan Oo. lesz a lefutás.
+ */
+function computeContoursForCode(codeString, algo = 'B') {
+  const params = paramsFromCode(codeString);
+    return computeContoursForParams(params, algo);
+}
+
+
+// ============================================================
+
+function buildLaserContoursExact(scaledPolygons) {
+    if (!scaledPolygons || !scaledPolygons.length) return [];
 
     const EPS = 1e-9;
 
-    const polyInfos = scaledPolys.map(poly => {
-      const unique = poly.slice(0, poly.length - 1);
+    const polygonInfos = scaledPolygons.map(polygon => {
+      const unique = polygon.slice(0, polygon.length - 1);
       let minX = Infinity, maxX = -Infinity;
       let minY = Infinity, maxY = -Infinity;
       for (const [x,y] of unique) {
@@ -1200,22 +1132,22 @@ function buildLaserContoursExact(scaledPolys) {
         if (y < minY) minY = y;
         if (y > maxY) maxY = y;
       }
-      return { poly, unique, minX, maxX, minY, maxY };
+      return { polygon, unique, minX, maxX, minY, maxY };
     });
 
-    function pointInAnyPoly(x, y) {
-      for (const info of polyInfos) {
+    function pointInAnyPolygon(x, y) {
+      for (const info of polygonInfos) {
         if (x < info.minX - 1e-6 || x > info.maxX + 1e-6 ||
             y < info.minY - 1e-6 || y > info.maxY + 1e-6) continue;
-        if (pointInPolygon(x, y, info.poly)) return true;
+        if (isPointInPolygon(x, y, info.polygon)) return true;
       }
       return false;
     }
 
     const edges = [];
-    for (let pi = 0; pi < scaledPolys.length; pi++) {
-      const poly = scaledPolys[pi];
-      const unique = poly.slice(0, poly.length - 1);
+    for (let pi = 0; pi < scaledPolygons.length; pi++) {
+      const polygon = scaledPolygons[pi];
+      const unique = polygon.slice(0, polygon.length - 1);
       const n = unique.length;
       if (n < 2) continue;
       for (let i = 0; i < n; i++) {
@@ -1224,7 +1156,7 @@ function buildLaserContoursExact(scaledPolys) {
         edges.push({
           ax: a[0], ay: a[1],
           bx: b[0], by: b[1],
-          polyIndex: pi,
+          polygonIndex: pi,
           splitTs: [0, 1]
         });
       }
@@ -1328,8 +1260,8 @@ function buildLaserContoursExact(scaledPolys) {
     const pxR = mx - nx * off;
     const pyR = my - ny * off;
 
-    const insideL = pointInAnyPoly(pxL, pyL);
-    const insideR = pointInAnyPoly(pxR, pyR);
+    const insideL = pointInAnyPolygon(pxL, pyL);
+    const insideR = pointInAnyPolygon(pxR, pyR);
 
     if (insideL === insideR) continue; // nem határszegmens
 
@@ -1342,32 +1274,32 @@ function buildLaserContoursExact(scaledPolys) {
   }
 
   // --- Build closed contours from oriented boundary segments (single-use edges; no duplicates) ---
-  const KEY_SCALE = 1e4; // 0.0001 unit quantization for stable vertex matching
-  const vKey = (x, y) => Math.round(x * KEY_SCALE) + ',' + Math.round(y * KEY_SCALE);
+  const KEY_SCALE = 1e4; // 0.0001 unit quantization for stable point matching
+  const pointKey = (x, y) => Math.round(x * KEY_SCALE) + ',' + Math.round(y * KEY_SCALE);
 
   // Deduplicate undirected segments (numeric noise / overlap can create duplicates)
   const seenUnd = new Set();
 
-  const verts = new Map(); // key -> { x, y, outs: [] }
+  const pointsByKey = new Map(); // key -> { x, y, outs: [] }
   const allEdges = [];     // directed edges (each boundary segment appears once)
 
-  function getVert(k, x, y) {
-    let v = verts.get(k);
+  function getPoint(k, x, y) {
+    let v = pointsByKey.get(k);
     if (!v) {
       v = { x, y, outs: [] };
-      verts.set(k, v);
+      pointsByKey.set(k, v);
     }
     return v;
   }
 
-  function addEdge(k0, x0, y0, k1, x1, y1) {
-    const from = getVert(k0, x0, y0);
-    const to   = getVert(k1, x1, y1);
+  function addDirectedEdge(k0, x0, y0, k1, x1, y1) {
+    const from = getPoint(k0, x0, y0);
+    const to   = getPoint(k1, x1, y1);
     const ang  = Math.atan2(to.y - from.y, to.x - from.x);
     const e = {
       fromK: k0, toK: k1,
-      fromPt: [from.x, from.y],
-      toPt: [to.x, to.y],
+      fromPoint: [from.x, from.y],
+      toPoint: [to.x, to.y],
       ang,
       visited: false
     };
@@ -1376,23 +1308,23 @@ function buildLaserContoursExact(scaledPolys) {
   }
 
   for (const seg of orientedSegments) {
-    const k0 = vKey(seg.x0, seg.y0);
-    const k1 = vKey(seg.x1, seg.y1);
+    const k0 = pointKey(seg.x0, seg.y0);
+    const k1 = pointKey(seg.x1, seg.y1);
 
     // undirected key
     const und = (k0 < k1) ? (k0 + '|' + k1) : (k1 + '|' + k0);
     if (seenUnd.has(und)) continue;
     seenUnd.add(und);
 
-    addEdge(k0, seg.x0, seg.y0, k1, seg.x1, seg.y1);
+    addDirectedEdge(k0, seg.x0, seg.y0, k1, seg.x1, seg.y1);
   }
 
-  // Sort outgoing edges around each vertex by angle
-  for (const v of verts.values()) {
+  // Sort outgoing edges around each point by angle
+  for (const v of pointsByKey.values()) {
     v.outs.sort((a, b) => a.ang - b.ang);
   }
 
-  function normAngle(a) {
+  function normalizeAngle(a) {
     while (a <= -Math.PI) a += 2 * Math.PI;
     while (a >  Math.PI) a -= 2 * Math.PI;
     return a;
@@ -1400,19 +1332,19 @@ function buildLaserContoursExact(scaledPolys) {
 
   function angleDiffCCW(fromAng, toAng) {
     // minimal positive CCW turn from fromAng to toAng, in (0, 2π]
-    let d = normAngle(toAng - fromAng);
+    let d = normalizeAngle(toAng - fromAng);
     if (d <= 0) d += 2 * Math.PI;
     return d;
   }
 
   function pickNextEdge(prevEdge) {
-    const v = verts.get(prevEdge.toK);
+    const v = pointsByKey.get(prevEdge.toK);
     if (!v || !v.outs.length) return null;
 
-    // Incoming direction at the vertex: from current vertex back to previous vertex
+    // Incoming direction at the point: from current point back to previous point
     const inAng = Math.atan2(
-      prevEdge.fromPt[1] - prevEdge.toPt[1],
-      prevEdge.fromPt[0] - prevEdge.toPt[0]
+      prevEdge.fromPoint[1] - prevEdge.toPoint[1],
+      prevEdge.fromPoint[0] - prevEdge.toPoint[0]
     );
 
     let best = null;
@@ -1436,22 +1368,22 @@ function buildLaserContoursExact(scaledPolys) {
     if (startEdge.visited) continue;
 
     const startK = startEdge.fromK;
-    const contour = [startEdge.fromPt.slice()];
+    const contour = [startEdge.fromPoint.slice()];
     let e = startEdge;
     let steps = 0;
 
     while (e && !e.visited && steps < MAX_STEPS) {
       e.visited = true;
-      contour.push(e.toPt.slice());
+      contour.push(e.toPoint.slice());
 
-      // Closed when we return to the starting vertex
+      // Closed when we return to the starting point
       if (e.toK === startK) break;
 
       e = pickNextEdge(e);
       steps++;
     }
 
-    // Accept only properly closed loops
+    // Accept only properly closed polygons
     if (contour.length >= 4) {
       const first = contour[0];
       const last  = contour[contour.length - 1];
@@ -1476,13 +1408,13 @@ function buildLaserContoursExact(scaledPolys) {
 
 
 // ====== DXF kontúr variánsok (B, C) – teszteléshez ======
-function buildLaserContoursExact_B(scaledPolys) {
-    if (!scaledPolys || !scaledPolys.length) return [];
+function buildLaserContoursExact_B(scaledPolygons) {
+    if (!scaledPolygons || !scaledPolygons.length) return [];
 
     const EPS = 1e-9;
 
-    const polyInfos = scaledPolys.map(poly => {
-      const unique = poly.slice(0, poly.length - 1);
+    const polygonInfos = scaledPolygons.map(polygon => {
+      const unique = polygon.slice(0, polygon.length - 1);
       let minX = Infinity, maxX = -Infinity;
       let minY = Infinity, maxY = -Infinity;
       for (const [x,y] of unique) {
@@ -1491,22 +1423,22 @@ function buildLaserContoursExact_B(scaledPolys) {
         if (y < minY) minY = y;
         if (y > maxY) maxY = y;
       }
-      return { poly, unique, minX, maxX, minY, maxY };
+      return { polygon, unique, minX, maxX, minY, maxY };
     });
 
-    function pointInAnyPoly(x, y) {
-      for (const info of polyInfos) {
+    function pointInAnyPolygon(x, y) {
+      for (const info of polygonInfos) {
         if (x < info.minX - 1e-6 || x > info.maxX + 1e-6 ||
             y < info.minY - 1e-6 || y > info.maxY + 1e-6) continue;
-        if (pointInPolygon(x, y, info.poly)) return true;
+        if (isPointInPolygon(x, y, info.polygon)) return true;
       }
       return false;
     }
 
     const edges = [];
-    for (let pi = 0; pi < scaledPolys.length; pi++) {
-      const poly = scaledPolys[pi];
-      const unique = poly.slice(0, poly.length - 1);
+    for (let pi = 0; pi < scaledPolygons.length; pi++) {
+      const polygon = scaledPolygons[pi];
+      const unique = polygon.slice(0, polygon.length - 1);
       const n = unique.length;
       if (n < 2) continue;
       for (let i = 0; i < n; i++) {
@@ -1515,7 +1447,7 @@ function buildLaserContoursExact_B(scaledPolys) {
         edges.push({
           ax: a[0], ay: a[1],
           bx: b[0], by: b[1],
-          polyIndex: pi,
+          polygonIndex: pi,
           splitTs: [0, 1]
         });
       }
@@ -1625,8 +1557,8 @@ function buildLaserContoursExact_B(scaledPolys) {
     const pxR = mx - nx * off;
     const pyR = my - ny * off;
 
-    const insideL = pointInAnyPoly(pxL, pyL);
-    const insideR = pointInAnyPoly(pxR, pyR);
+    const insideL = pointInAnyPolygon(pxL, pyL);
+    const insideR = pointInAnyPolygon(pxR, pyR);
 
     if (insideL === insideR) continue; // nem határszegmens
 
@@ -1640,31 +1572,31 @@ function buildLaserContoursExact_B(scaledPolys) {
 
   // --- Build closed contours from oriented boundary segments (single-use edges; no duplicates) ---
     const KEY_SCALE = 1e5; // finomabb kvantálás a robusztusabb illesztéshez
-  const vKey = (x, y) => Math.round(x * KEY_SCALE) + ',' + Math.round(y * KEY_SCALE);
+  const pointKey = (x, y) => Math.round(x * KEY_SCALE) + ',' + Math.round(y * KEY_SCALE);
 
   // Deduplicate undirected segments (numeric noise / overlap can create duplicates)
   const seenUnd = new Set();
 
-  const verts = new Map(); // key -> { x, y, outs: [] }
+  const pointsByKey = new Map(); // key -> { x, y, outs: [] }
   const allEdges = [];     // directed edges (each boundary segment appears once)
 
-  function getVert(k, x, y) {
-    let v = verts.get(k);
+  function getPoint(k, x, y) {
+    let v = pointsByKey.get(k);
     if (!v) {
       v = { x, y, outs: [] };
-      verts.set(k, v);
+      pointsByKey.set(k, v);
     }
     return v;
   }
 
-  function addEdge(k0, x0, y0, k1, x1, y1) {
-    const from = getVert(k0, x0, y0);
-    const to   = getVert(k1, x1, y1);
+  function addDirectedEdge(k0, x0, y0, k1, x1, y1) {
+    const from = getPoint(k0, x0, y0);
+    const to   = getPoint(k1, x1, y1);
     const ang  = Math.atan2(to.y - from.y, to.x - from.x);
     const e = {
       fromK: k0, toK: k1,
-      fromPt: [from.x, from.y],
-      toPt: [to.x, to.y],
+      fromPoint: [from.x, from.y],
+      toPoint: [to.x, to.y],
       ang,
       visited: false
     };
@@ -1673,23 +1605,23 @@ function buildLaserContoursExact_B(scaledPolys) {
   }
 
   for (const seg of orientedSegments) {
-    const k0 = vKey(seg.x0, seg.y0);
-    const k1 = vKey(seg.x1, seg.y1);
+    const k0 = pointKey(seg.x0, seg.y0);
+    const k1 = pointKey(seg.x1, seg.y1);
 
     // undirected key
     const und = (k0 < k1) ? (k0 + '|' + k1) : (k1 + '|' + k0);
     if (seenUnd.has(und)) continue;
     seenUnd.add(und);
 
-    addEdge(k0, seg.x0, seg.y0, k1, seg.x1, seg.y1);
+    addDirectedEdge(k0, seg.x0, seg.y0, k1, seg.x1, seg.y1);
   }
 
-  // Sort outgoing edges around each vertex by angle
-  for (const v of verts.values()) {
+  // Sort outgoing edges around each point by angle
+  for (const v of pointsByKey.values()) {
     v.outs.sort((a, b) => a.ang - b.ang);
   }
 
-  function normAngle(a) {
+  function normalizeAngle(a) {
     while (a <= -Math.PI) a += 2 * Math.PI;
     while (a >  Math.PI) a -= 2 * Math.PI;
     return a;
@@ -1697,19 +1629,19 @@ function buildLaserContoursExact_B(scaledPolys) {
 
   function angleDiffCCW(fromAng, toAng) {
     // minimal positive CCW turn from fromAng to toAng, in (0, 2π]
-    let d = normAngle(toAng - fromAng);
+    let d = normalizeAngle(toAng - fromAng);
     if (d <= 0) d += 2 * Math.PI;
     return d;
   }
 
   function pickNextEdge(prevEdge) {
-    const v = verts.get(prevEdge.toK);
+    const v = pointsByKey.get(prevEdge.toK);
     if (!v || !v.outs.length) return null;
 
-    // Incoming direction at the vertex: from current vertex back to previous vertex
+    // Incoming direction at the point: from current point back to previous point
     const inAng = Math.atan2(
-      prevEdge.fromPt[1] - prevEdge.toPt[1],
-      prevEdge.fromPt[0] - prevEdge.toPt[0]
+      prevEdge.fromPoint[1] - prevEdge.toPoint[1],
+      prevEdge.fromPoint[0] - prevEdge.toPoint[0]
     );
 
     let best = null;
@@ -1733,22 +1665,22 @@ function buildLaserContoursExact_B(scaledPolys) {
     if (startEdge.visited) continue;
 
     const startK = startEdge.fromK;
-    const contour = [startEdge.fromPt.slice()];
+    const contour = [startEdge.fromPoint.slice()];
     let e = startEdge;
     let steps = 0;
 
     while (e && !e.visited && steps < MAX_STEPS) {
       e.visited = true;
-      contour.push(e.toPt.slice());
+      contour.push(e.toPoint.slice());
 
-      // Closed when we return to the starting vertex
+      // Closed when we return to the starting point
       if (e.toK === startK) break;
 
       e = pickNextEdge(e);
       steps++;
     }
 
-    // Accept only properly closed loops
+    // Accept only properly closed polygons
     if (contour.length >= 4) {
       const first = contour[0];
       const last  = contour[contour.length - 1];
@@ -1770,63 +1702,310 @@ function buildLaserContoursExact_B(scaledPolys) {
   return contours;
 }
 
-function computeContoursForParams(params, algo = 'B') {
-  const polyRes = computePolysForParams(params);
-  if (!polyRes || !polyRes.polys || !polyRes.polys.length) return null;
 
-    const contours = (algo === 'B') ? buildLaserContoursExact_B(polyRes.polys)
-                : buildLaserContoursExact(polyRes.polys);
-  if (!contours || !contours.length) return null;
+  // ============================================================
+  //  DXF export
+  // ============================================================
 
-  // Külső kontúr: legnagyobb abszolút területű hurok.
-  let outerIndex = 0;
-  let maxAbsArea = -Infinity;
-
-  for (let i = 0; i < contours.length; i++) {
-    const contour = contours[i];
-    if (!contour || contour.length < 4) continue; // zárt poligon: min 3 + záró pont
-
-    // A buildLaserContoursExact záró pontot ad: hagyjuk ki az utolsót területhez.
-    const unique = contour.slice(0, contour.length - 1);
-    if (unique.length < 3) continue;
-
-    let area = 0;
-    for (let j = 0, k = unique.length - 1; j < unique.length; k = j++) {
-      const xi = unique[j][0], yi = unique[j][1];
-      const xj = unique[k][0], yj = unique[k][1];
-      area += (xj * yi - xi * yj);
+  class DxfWriter {
+    constructor() {
+      this._parts = [];
+      this._nl = '\r\n';
     }
-    area *= 0.5;
-
-    const absArea = Math.abs(area);
-    if (absArea > maxAbsArea) {
-      maxAbsArea = absArea;
-      outerIndex = i;
+    add(code, value) {
+      // A DXF formátum páros sorokból áll: group code + value
+      this._parts.push(String(code), this._nl, String(value), this._nl);
+    }
+    toString() {
+      return this._parts.join('');
     }
   }
 
-  const contoursWithFlags = contours.map((c, idx) => ({
-    points: c,
-    isOuter: idx === outerIndex
-  }));
+  function _dxfWriteHeader(writer) {
+    writer.add(0, 'SECTION');
+    writer.add(2, 'HEADER');
+    writer.add(0, 'ENDSEC');
+  }
 
-  return { contoursWithFlags };
+  function _dxfWriteTables(writer, opts = {}) {
+    const includeLtype = (opts.includeLtype !== false);
+
+    writer.add(0, 'SECTION');
+    writer.add(2, 'TABLES');
+
+    if (includeLtype) {
+      // LTYPE: CONTINUOUS
+      writer.add(0, 'TABLE');
+      writer.add(2, 'LTYPE');
+      writer.add(70, 1);
+      writer.add(0, 'LTYPE');
+      writer.add(2, 'CONTINUOUS');
+      writer.add(70, 0);
+      writer.add(3, 'Solid line');
+      writer.add(72, 65);
+      writer.add(73, 0);
+      writer.add(40, 0.0);
+      writer.add(0, 'ENDTAB');
+    }
+
+    // LAYER: 0 + kontúrok + keret + furat
+    writer.add(0, 'TABLE');
+    writer.add(2, 'LAYER');
+    writer.add(70, 5);
+
+    function layer(name, color) {
+      writer.add(0, 'LAYER');
+      writer.add(2, name);
+      writer.add(70, 0);
+      writer.add(62, color);
+      writer.add(6, 'CONTINUOUS');
+    }
+
+    layer('0', 7);
+    layer('Kulso_kontur', 7);
+    layer('Belso_kontur', 5);
+    layer('Furat', 1);
+    layer('Keret', 3);
+
+    writer.add(0, 'ENDTAB');
+    writer.add(0, 'ENDSEC');
+  }
+
+  function _dxfBeginBlocks(writer) {
+    writer.add(0, 'SECTION');
+    writer.add(2, 'BLOCKS');
+  }
+
+  function _dxfEndSection(writer) {
+    writer.add(0, 'ENDSEC');
+  }
+
+  function _dxfBeginEntities(writer) {
+    writer.add(0, 'SECTION');
+    writer.add(2, 'ENTITIES');
+  }
+
+  function _dxfFinish(writer) {
+    writer.add(0, 'ENDSEC');
+    writer.add(0, 'EOF');
+  }
+
+  function _pointsEqual(a, b) {
+    return a && b && a[0] === b[0] && a[1] === b[1];
+  }
+
+  function _uniqueContourPoints(points) {
+    if (!points || points.length < 2) return [];
+    const uniquePoints = points.slice();
+    // A core kontúrok zártak (utolsó = első) – ezt DXF LWPOLYLINE-hoz egyedivé tesszük.
+    if (uniquePoints.length >= 2 && _pointsEqual(uniquePoints[0], uniquePoints[uniquePoints.length - 1])) {
+      uniquePoints.pop();
+    }
+    return uniquePoints;
+  }
+
+  function computeBboxFromContours(contoursWithFlags) {
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const c of contoursWithFlags || []) {
+      const points = (c && c.points) ? c.points : null;
+      if (!points || points.length < 2) continue;
+      const unique = _uniqueContourPoints(points);
+      for (const p of unique) {
+        const x = p[0], y = p[1];
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+    if (!Number.isFinite(minX)) return null;
+    return { minX, maxX, minY, maxY, width: (maxX - minX), height: (maxY - minY) };
+  }
+
+  function dxfAddFlakeBlock(writer, opts) {
+    const blockName = String(opts.blockName || 'PEHELY');
+    const contoursWithFlags = opts.contoursWithFlags || [];
+
+    const bbox = computeBboxFromContours(contoursWithFlags);
+    const cx = Number.isFinite(opts.centerX) ? opts.centerX : (bbox ? (bbox.minX + bbox.maxX) / 2 : 0);
+    const cy = Number.isFinite(opts.centerY) ? opts.centerY : (bbox ? (bbox.minY + bbox.maxY) / 2 : 0);
+    const komplex = computeKomplexFromContoursWithFlags(contoursWithFlags);
+    const tVal = (komplex && Number.isFinite(komplex.KT) && Number.isFinite(komplex.BT))
+      ? (Number(komplex.KT) - Number(komplex.BT))
+      : 0;
+    const markBadFlake = Number.isFinite(tVal) && tVal < 0;
+
+    const includeHole = (opts.includeHole !== false);
+    let hole = opts.hole || null;
+    if (includeHole && !hole) {
+      const minRectMm = opts.minRectMm;
+      hole = computeHangingHole(contoursWithFlags, minRectMm);
+    }
+
+    writer.add(0, 'BLOCK');
+    writer.add(8, '0');
+    writer.add(2, blockName);
+    writer.add(70, 0);
+    writer.add(10, 0); writer.add(20, 0); writer.add(30, 0);
+    writer.add(3, blockName);
+    writer.add(1, '');
+
+    for (const c of contoursWithFlags) {
+      const points = (c && c.points) ? c.points : null;
+      if (!points || points.length < 4) continue;
+      const unique = _uniqueContourPoints(points);
+      if (unique.length < 3) continue;
+
+      writer.add(0, 'LWPOLYLINE');
+      writer.add(8, c.isOuter ? 'Kulso_kontur' : 'Belso_kontur');
+      writer.add(62, c.isOuter ? 7 : 5);
+      writer.add(90, unique.length);
+      writer.add(70, 1); // zárt
+
+      for (const p of unique) {
+        writer.add(10, (p[0] - cx).toFixed(4));
+        writer.add(20, (p[1] - cy).toFixed(4));
+      }
+    }
+
+    if (includeHole && hole) {
+      writer.add(0, 'CIRCLE');
+      writer.add(8, 'Furat');
+      writer.add(10, (Number(hole.x) - cx).toFixed(4));
+      writer.add(20, (Number(hole.y) - cy).toFixed(4));
+      writer.add(30, 0);
+      writer.add(40, Number(hole.radius).toFixed(4));
+    }
+
+    if (markBadFlake) {
+      const markRadius = DEFAULTS.TRUNK_LENGTH;
+      writer.add(0, 'CIRCLE');
+      writer.add(8, 'Kulso_kontur');
+      writer.add(10, (0).toFixed(4));
+      writer.add(20, (0).toFixed(4));
+      writer.add(30, 0);
+      writer.add(40, Number(markRadius).toFixed(4));
+    }
+
+    writer.add(0, 'ENDBLK');
+  }
+
+function dxfAddInsert(writer, opts) {
+    writer.add(0, 'INSERT');
+    writer.add(8, String(opts.layer || '0'));
+    writer.add(2, String(opts.blockName));
+    writer.add(10, Number(opts.x || 0).toFixed(4));
+    writer.add(20, Number(opts.y || 0).toFixed(4));
+    writer.add(30, 0);
+    const s = Number.isFinite(opts.scale) ? opts.scale : 1;
+    writer.add(41, s); writer.add(42, s); writer.add(43, s);
+    writer.add(50, Number(opts.rotationDeg || 0).toFixed(4));
+  }
+
+function dxfAddSheetFrame(writer, opts) {
+    const sheetW = Number(opts.sheetW) || 0;
+    const sheetH = Number(opts.sheetH) || 0;
+    const offsetDown = Number(opts.offsetDown) || 0; // pozitív: lefelé
+    const yTop = -offsetDown;
+    const yBot = -(offsetDown + sheetH);
+
+    writer.add(0, 'LWPOLYLINE');
+    writer.add(8, String(opts.layer || 'Keret'));
+    writer.add(90, 4);
+    writer.add(70, 1); // zárt
+
+    writer.add(10, (0).toFixed(4));
+    writer.add(20, (yTop).toFixed(4));
+    writer.add(10, (sheetW).toFixed(4));
+    writer.add(20, (yTop).toFixed(4));
+    writer.add(10, (sheetW).toFixed(4));
+    writer.add(20, (yBot).toFixed(4));
+    writer.add(10, (0).toFixed(4));
+    writer.add(20, (yBot).toFixed(4));
+  }
+
+  function buildSingleFlakeDxf(code, contoursWithFlags, minRectMm) {
+    const writer = new DxfWriter();
+    _dxfWriteHeader(writer);
+    _dxfWriteTables(writer, { includeLtype: true });
+    _dxfBeginBlocks(writer);
+
+    const blockName = blockNameFromCode(code);
+    dxfAddFlakeBlock(writer, { blockName, contoursWithFlags, minRectMm, includeHole: true });
+
+    _dxfEndSection(writer); // BLOCKS
+
+    _dxfBeginEntities(writer);
+    dxfAddInsert(writer, { blockName, x: 0, y: 0, layer: '0', scale: 1, rotationDeg: 0 });
+    _dxfFinish(writer);
+    return writer.toString();
+  }
+
+  function buildCollectionDxf(opts) {
+    const writer = new DxfWriter();
+    _dxfWriteHeader(writer);
+    _dxfWriteTables(writer, { includeLtype: true });
+    _dxfBeginBlocks(writer);
+
+    const blocks = opts && Array.isArray(opts.blocks) ? opts.blocks : [];
+    for (const b of blocks) {
+      if (!b || !b.blockName || !b.contoursWithFlags) continue;
+      dxfAddFlakeBlock(writer, {
+        blockName: b.blockName,
+        contoursWithFlags: b.contoursWithFlags,
+        centerX: b.centerX,
+        centerY: b.centerY,
+        minRectMm: b.minRectMm,
+        includeHole: (b.includeHole !== false),
+        hole: b.hole
+      });
+    }
+
+  _dxfEndSection(writer); // BLOCKS
+
+  _dxfBeginEntities(writer);
+
+  const frames = opts && Array.isArray(opts.frames) ? opts.frames : [];
+  for (const f of frames) {
+    if (!f) continue;
+    dxfAddSheetFrame(writer, f);
+  }
+
+  const inserts = opts && Array.isArray(opts.inserts) ? opts.inserts : [];
+  for (const ins of inserts) {
+    if (!ins || !ins.blockName) continue;
+    dxfAddInsert(writer, ins);
+  }
+  _dxfFinish(writer);
+  return writer.toString();
 }
 
-/**
- * Kontúrok számítása PEHELY-kódból.
- * Régi (lefutás nélküli) kódoknál automatikusan Oo. lesz a lefutás.
- */
-function computeContoursForCode(codeString, algo = 'B') {
-  const params = paramsFromCode(codeString);
-    return computeContoursForParams(params, algo);
-}
+  /**
+   * DXF BLOCK/INSERT név a PEHELY-kódból.
+   *
+   * Cél: a blokk neve legyen stabilan a kódhoz köthető (később visszakereshető),
+   * de DXF-kompatibilis karakterkészletet használjon.
+   *
+   * Szabály: minden nem [0-9A-Za-z_] karakter '_' lesz.
+   * (A kód jellemzően '-' és '.' karaktereket tartalmaz; ezeket '_' váltja.)
+   */
+  function blockNameFromCode(code) {
+    const s = String(code || '');
+    let out = '';
+    for (let i = 0; i < s.length; i++) {
+      const ch = s[i];
+      const isAZ = (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z');
+      const is09 = (ch >= '0' && ch <= '9');
+      if (isAZ || is09 || ch === '_') out += ch;
+      else out += '_';
+    }
+    out = out.replace(/_+/g, '_').replace(/^_+|_+$/g, '');
+    return out || 'PEHELY';
+  }
+  // DXF generálás
 
 
-  // Exports
-  PehelyCore.pointInPolygon = pointInPolygon;
 
-  // ============================================================
   //  Felfüggesztő furat helyének számítása (DXF exporthoz) – v67
   //  - Próbakör átmérő = max(minRectMm, 3) - 0.1
   //  - Próbakör a középtengelyen (bbox-közép X) fentről lefelé halad
@@ -1836,27 +2015,34 @@ function computeContoursForCode(codeString, algo = 'B') {
   //  - Ha nem található hely, a furat a pehely fölé kerül (kézi korrekcióhoz)
   // ============================================================
 
-  function _polyArea(poly) {
+
+  function isPointInPolygon(x, y, polygon) {
+  // Ray casting
+  // A furatkeresés korábban {(x < (xj - xi) * (y - yi) / ((yj - yi) || 1e-12) + xi)} képlettel futott.
+  let inside = false;
+  const n = polygon.length;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+  const xi = polygon[i][0], yi = polygon[i][1];
+  const xj = polygon[j][0], yj = polygon[j][1];
+  const intersect =
+  ((yi > y) !== (yj > y)) &&
+  (x < (xj - xi) * (y - yi) / (yj - yi + 1e-12) + xi);
+  if (intersect) inside = !inside;
+  }
+  return inside;
+  }
+
+
+  function signedPolygonArea(points) {
+    const polygon = points || [];
+    if (polygon.length < 3) return 0;
     let a = 0;
-    for (let i = 0, n = poly.length; i < n; i++) {
-      const [x1, y1] = poly[i];
-      const [x2, y2] = poly[(i + 1) % n];
+    for (let i = 0, n = polygon.length; i < n; i++) {
+      const [x1, y1] = polygon[i];
+      const [x2, y2] = polygon[(i + 1) % n];
       a += x1 * y2 - x2 * y1;
     }
     return a * 0.5;
-  }
-
-  function _pointInPoly(px, py, poly) {
-    // Ray casting
-    let inside = false;
-    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-      const xi = poly[i][0], yi = poly[i][1];
-      const xj = poly[j][0], yj = poly[j][1];
-      const intersect = ((yi > py) !== (yj > py)) &&
-                        (px < (xj - xi) * (py - yi) / ((yj - yi) || 1e-12) + xi);
-      if (intersect) inside = !inside;
-    }
-    return inside;
   }
 
   function _distPointToSegment(px, py, ax, ay, bx, by) {
@@ -1873,20 +2059,20 @@ function computeContoursForCode(codeString, algo = 'B') {
     return Math.sqrt(dx * dx + dy * dy);
   }
 
-  function _segmentsFromPoly(poly) {
+  function _segmentsFromPolygon(polygon) {
     const segs = [];
-    for (let i = 0; i < poly.length; i++) {
-      const [ax, ay] = poly[i];
-      const [bx, by] = poly[(i + 1) % poly.length];
+    for (let i = 0; i < polygon.length; i++) {
+      const [ax, ay] = polygon[i];
+      const [bx, by] = polygon[(i + 1) % polygon.length];
       segs.push([ax, ay, bx, by]);
     }
     return segs;
   }
 
-  function _circleClear(px, py, r, outerPoly, innerPolys, allSegs) {
-    if (!_pointInPoly(px, py, outerPoly)) return false;
-    for (const h of innerPolys) {
-      if (_pointInPoly(px, py, h)) return false;
+  function _circleClear(px, py, r, outerPolygon, innerPolygons, allSegs) {
+    if (!isPointInPolygon(px, py, outerPolygon)) return false;
+    for (const h of innerPolygons) {
+      if (isPointInPolygon(px, py, h)) return false;
     }
     for (const s of allSegs) {
       const d = _distPointToSegment(px, py, s[0], s[1], s[2], s[3]);
@@ -1897,16 +2083,16 @@ function computeContoursForCode(codeString, algo = 'B') {
 
   function computeHangingHole(contoursWithFlags, minRectMm) {
     const rHole = 0.8; // 1.6 mm átmérő
-    const minTh = Math.max(Number(minRectMm) || 0, 3);
+    const minTh = Math.max(Number(minRectMm) || DEFAULTS.MIN_RECT_MM, 3);
     const testDia = Math.max(0.1, minTh - 0.1);
     const rTest = testDia * 0.5;
 
     // BBOX (minden kontúr alapján)
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     for (const c of contoursWithFlags || []) {
-      const pts = (c && c.points) ? c.points : null;
-      if (!pts || pts.length < 4) continue;
-      const unique = pts.slice(0, pts.length - 1);
+      const points = (c && c.points) ? c.points : null;
+      if (!points || points.length < 4) continue;
+      const unique = points.slice(0, points.length - 1);
       for (const p of unique) {
         const x = p[0], y = p[1];
         if (x < minX) minX = x;
@@ -1923,57 +2109,57 @@ function computeContoursForCode(codeString, algo = 'B') {
     const axisX = (minX + maxX) * 0.5;
 
     // Külső kontúr kiválasztása: legnagyobb területű isOuter
-    let outerPoly = null;
+    let outerPolygon = null;
     let outerAreaAbs = -Infinity;
-    const innerPolys = [];
+    const innerPolygons = [];
 
     for (const c of contoursWithFlags || []) {
-      const pts = (c && c.points) ? c.points : null;
-      if (!pts || pts.length < 4) continue;
-      const poly = pts.slice(0, pts.length - 1);
-      if (poly.length < 3) continue;
-      const areaAbs = Math.abs(_polyArea(poly));
+      const points = (c && c.points) ? c.points : null;
+      if (!points || points.length < 4) continue;
+      const polygon = points.slice(0, points.length - 1);
+      if (polygon.length < 3) continue;
+      const areaAbs = Math.abs(signedPolygonArea(polygon));
       if (c.isOuter) {
         if (areaAbs > outerAreaAbs) {
           outerAreaAbs = areaAbs;
-          outerPoly = poly;
+          outerPolygon = polygon;
         }
       } else {
-        innerPolys.push(poly);
+        innerPolygons.push(polygon);
       }
     }
 
     // Ha valamiért nincs isOuter, válasszuk a legnagyobb területű kontúrt külsőnek.
-    if (!outerPoly) {
+    if (!outerPolygon) {
       for (const c of contoursWithFlags || []) {
-        const pts = (c && c.points) ? c.points : null;
-        if (!pts || pts.length < 4) continue;
-        const poly = pts.slice(0, pts.length - 1);
-        if (poly.length < 3) continue;
-        const areaAbs = Math.abs(_polyArea(poly));
+        const points = (c && c.points) ? c.points : null;
+        if (!points || points.length < 4) continue;
+        const polygon = points.slice(0, points.length - 1);
+        if (polygon.length < 3) continue;
+        const areaAbs = Math.abs(signedPolygonArea(polygon));
         if (areaAbs > outerAreaAbs) {
           outerAreaAbs = areaAbs;
-          outerPoly = poly;
+          outerPolygon = polygon;
         }
       }
       // A többit kezeljük belsőnek (ha van)
-      innerPolys.length = 0;
+      innerPolygons.length = 0;
       for (const c of contoursWithFlags || []) {
-        const pts = (c && c.points) ? c.points : null;
-        if (!pts || pts.length < 4) continue;
-        const poly = pts.slice(0, pts.length - 1);
-        if (poly.length < 3) continue;
-        if (poly !== outerPoly) innerPolys.push(poly);
+        const points = (c && c.points) ? c.points : null;
+        if (!points || points.length < 4) continue;
+        const polygon = points.slice(0, points.length - 1);
+        if (polygon.length < 3) continue;
+        if (polygon !== outerPolygon) innerPolygons.push(polygon);
       }
     }
 
-    if (!outerPoly) {
+    if (!outerPolygon) {
       return { ok: false, x: axisX, y: maxY + 10, radius: rHole, testDiameter: testDia };
     }
 
-    const allSegs = _segmentsFromPoly(outerPoly);
-    for (const h of innerPolys) {
-      allSegs.push(..._segmentsFromPoly(h));
+    const allSegs = _segmentsFromPolygon(outerPolygon);
+    for (const h of innerPolygons) {
+      allSegs.push(..._segmentsFromPolygon(h));
     }
 
     const step = 0.1; // mm
@@ -1982,7 +2168,7 @@ function computeContoursForCode(codeString, algo = 'B') {
 
     let yStart = null;
     for (let y = yScanStart; y >= yScanMin; y -= step) {
-      if (_circleClear(axisX, y, rTest, outerPoly, innerPolys, allSegs)) {
+      if (_circleClear(axisX, y, rTest, outerPolygon, innerPolygons, allSegs)) {
         yStart = y;
         break;
       }
@@ -1996,7 +2182,7 @@ function computeContoursForCode(codeString, algo = 'B') {
     let yEnd = yStart;
     const yTarget = yStart - 8.0; // max 8 mm
     for (let y = yStart - step; y >= yTarget - 1e-9; y -= step) {
-      if (_circleClear(axisX, y, rTest, outerPoly, innerPolys, allSegs)) yEnd = y;
+      if (_circleClear(axisX, y, rTest, outerPolygon, innerPolygons, allSegs)) yEnd = y;
       else break;
     }
 
@@ -2005,20 +2191,14 @@ function computeContoursForCode(codeString, algo = 'B') {
   }
 
 
-  PehelyCore.scalePolygon = scalePolygon;
-  PehelyCore.paramsFromCode = paramsFromCode;
 
-  PehelyCore.getCodeFormatVersion = getCodeFormatVersion;
-  PehelyCore.upgradeCodeToCurrent = upgradeCodeToCurrent;
 
-  PehelyCore.buildCodeFromParams = buildCodeFromParams;
-  PehelyCore.buildSingleTreeSegments = buildSingleTreeSegments;
-  PehelyCore.buildSnowflakeSegments = buildSnowflakeSegments;
-  PehelyCore.makeRectFromBase = makeRectFromBase;
-  PehelyCore.buildTentHexFromEdge = buildTentHexFromEdge;
-  PehelyCore.buildTrapHexFromEdge = buildTrapHexFromEdge;
-  PehelyCore.buildRegularHexFromEdge = buildRegularHexFromEdge;
-function addJpegCommentToArrayBuffer(arrayBuffer, comment) {
+
+  // ============================================================
+  //  JPEG meta / előnézet / PEHELY-kód kiolvasás
+  // ============================================================
+
+function jpegAddComment(arrayBuffer, comment) {
     const bytes = new Uint8Array(arrayBuffer);
     if (bytes.length < 4 || bytes[0] !== 0xFF || bytes[1] !== 0xD8) {
       return new Blob([bytes], { type: 'image/jpeg' });
@@ -2061,7 +2241,7 @@ function addJpegCommentToArrayBuffer(arrayBuffer, comment) {
     });
   }
 
-function createJpegBlobForCode(code, paramsOrTheme = null) {
+function jpegCreateCodeBlob(code, paramsOrTheme = null) {
     /**
      * JPEG előnézetet készít egy PEHELY kódhoz.
      *
@@ -2089,14 +2269,31 @@ function createJpegBlobForCode(code, paramsOrTheme = null) {
     }
 
     const params = paramsOverride || paramsFromCode(code);
-    const polyData = computePolysForParams(params);
-    if (!polyData) return Promise.resolve(null);
-    const { polys, minX, maxX, minY, maxY } = polyData;
+    const polygonData = computePolygonsForParams(params);
+    if (!polygonData) return Promise.resolve(null);
+    const { polygons, minX, maxX, minY, maxY } = polygonData;
+
+    // KOMPLEX előszámítás: a V02-től elvárt sárga jelöléshez és a későbbi beágyazáshoz.
+    // T = KT - BT. Ha T < 0, akkor a JPG-ben a pehely színe sárga.
+    let komplexForJpg = null;
+    try {
+      komplexForJpg = computeKomplexForParams(params, 'B');
+    } catch (e) {
+      komplexForJpg = null;
+    }
+    const tVal = (komplexForJpg && Number.isFinite(komplexForJpg.KT) && Number.isFinite(komplexForJpg.BT))
+      ? (Number(komplexForJpg.KT) - Number(komplexForJpg.BT))
+      : 0;
+    const markYellow = Number.isFinite(tVal) && tVal < 0;
 
     // Színpaletta – a felhasználói minták alapján
-    const palette = (theme === 'bordo')
+    let palette = (theme === 'bordo')
       ? { bg: '#5e0700', fg: '#fbeed2', text: '#fbeed2' }
       : { bg: '#001633', fg: '#bfe9ff', text: '#ffffff' };
+
+    if (markYellow) {
+      palette = { ...palette, fg: '#ffd400' };
+    }
 
     const canvas = document.createElement('canvas');
     canvas.width  = 600;
@@ -2128,12 +2325,12 @@ function createJpegBlobForCode(code, paramsOrTheme = null) {
     ctx.fillStyle   = palette.fg;
     ctx.strokeStyle = palette.fg;
 
-    for (const poly of polys) {
-      if (!poly || poly.length < 2) continue;
+    for (const polygon of polygons) {
+      if (!polygon || polygon.length < 2) continue;
       ctx.beginPath();
-      for (let i = 0; i < poly.length; i++) {
-        const x = poly[i][0];
-        const y = poly[i][1];
+      for (let i = 0; i < polygon.length; i++) {
+        const x = polygon[i][0];
+        const y = polygon[i][1];
         const sx = originX + (x - cx) * scale;
         const sy = originY - (y - cy) * scale;
         if (i === 0) ctx.moveTo(sx, sy);
@@ -2162,23 +2359,23 @@ function createJpegBlobForCode(code, paramsOrTheme = null) {
           const currentCode = buildCodeFromParams(params);
 
           // PEHELY-kód: mindig egyetlen kánonikus komment maradjon.
-          let outBlob = replacePehelyCodeInJpegArrayBuffer(arr, currentCode);
+          let outBlob = jpegReplacePehelyCode(arr, currentCode);
 
           // KOMPLEX: ha számolható, írjuk be külön kommentként.
           try {
-            const komplex = computeKomplexForParams(params, 'B');
+            const komplex = komplexForJpg || computeKomplexForParams(params, 'B');
             if (komplex) {
               const ab2 = await blobToArrayBuffer(outBlob);
               outBlob = replaceKomplexInJpegArrayBuffer(ab2, komplex);
             }
           } catch (e2) {
             // KOMPLEX nem kritikus: a JPG ettől még menthető.
-            console.warn('KOMPLEX beágyazási hiba:', e2);
+            dbgWarn('KOMPLEX beágyazási hiba:', e2);
           }
 
           resolve(outBlob);
         } catch (e) {
-          console.error('JPG komment beágyazási hiba:', e);
+          logError('JPG komment beágyazási hiba:', e);
           resolve(blob);
         }
       }, 'image/jpeg', 0.92);
@@ -2191,7 +2388,7 @@ function createJpegBlobForCode(code, paramsOrTheme = null) {
   // KOMPLEX (komplexitás metrikák) – JPG kommentként tárolva
   //
   // Formátum (külön COM szegmensben):
-  //   KOMPLEX-V01;KM=1;BM=6;KH=512.3;BH=88.1;KT=12345.6;BT=234.5
+  //   KOMPLEX-V02;KM=1;BM=6;KH=512.3;BH=88.1;KT=12345.6;BT=234.5
   //
   // Kulcsok:
   //   KM/BM = Külső/Belső Mennyiség (hurkok száma)
@@ -2199,27 +2396,138 @@ function createJpegBlobForCode(code, paramsOrTheme = null) {
   //   KT/BT = Külső/Belső terület [mm^2]
   // ============================================================
 
-  const KOMPLEX_PREFIX = 'KOMPLEX-';
-  const KOMPLEX_TAG = 'V01';
 
-  function round1(x) {
+  function listPehelyCodesFromJpegArrayBuffer(arrayBuffer) {
+    const bytes = new Uint8Array(arrayBuffer);
+    if (bytes.length < 4 || bytes[0] !== 0xFF || bytes[1] !== 0xD8) return [];
+    const out = [];
+    let i = 2;
+    while (i + 4 <= bytes.length) {
+      if (bytes[i] !== 0xFF) { i++; continue; }
+      const marker = bytes[i + 1];
+      if (marker === 0xD9 || marker === 0xDA) break; // EOI / SOS
+      const len = (bytes[i + 2] << 8) | bytes[i + 3];
+      if (len < 2 || i + 2 + len > bytes.length) break;
+
+      if (marker === 0xFE) { // COM
+        const start = i + 4;
+        const end   = i + 2 + len;
+        const comBytes = bytes.subarray(start, end);
+        const decoder  = new TextDecoder('utf-8');
+        const text     = decoder.decode(comBytes);
+        const idx      = text.indexOf('PEHELY-');
+        if (idx !== -1) {
+          const code = text.substring(idx + 7).trim();
+          if (code) out.push(code);
+        }
+      }
+      i += 2 + len;
+    }
+    return out;
+  }
+
+  function jpegParsePehelyCode(arrayBuffer) {
+    const codes = listPehelyCodesFromJpegArrayBuffer(arrayBuffer);
+    return codes.length ? codes[codes.length - 1] : null; // legutolsó a legfrissebb
+  }
+
+  function jpegReplacePehelyCode(arrayBuffer, codeString) {
+    const bytes = new Uint8Array(arrayBuffer);
+    if (bytes.length < 4 || bytes[0] !== 0xFF || bytes[1] !== 0xD8) {
+      // nem JPEG: egyszerűen visszaadjuk az eredetit
+      return new Blob([bytes], { type: 'image/jpeg' });
+    }
+
+    // 1) PEHELY kommentek kiszűrése (SOS előtt)
+    const kept = [];
+    kept.push(0xFF, 0xD8);
+    let i = 2;
+    while (i + 4 <= bytes.length) {
+      if (bytes[i] !== 0xFF) { break; }
+      const marker = bytes[i + 1];
+
+      if (marker === 0xDA) { // SOS: innentől adatfolyam, másoljuk a maradékot
+        kept.push(...bytes.subarray(i));
+        i = bytes.length;
+        break;
+      }
+      if (marker === 0xD9) { // EOI
+        kept.push(0xFF, 0xD9);
+        i += 2;
+        break;
+      }
+
+      const len = (bytes[i + 2] << 8) | bytes[i + 3];
+      if (len < 2 || i + 2 + len > bytes.length) {
+        // hibás szegmens – inkább az egészet hagyjuk érintetlenül
+        return new Blob([bytes], { type: 'image/jpeg' });
+      }
+
+      const segStart = i;
+      const segEnd = i + 2 + len;
+
+      if (marker === 0xFE) { // COM
+        const start = i + 4;
+        const end   = segEnd;
+        const comBytes = bytes.subarray(start, end);
+        const decoder  = new TextDecoder('utf-8');
+        const text     = decoder.decode(comBytes);
+        if (text.indexOf('PEHELY-') !== -1) {
+          // dobjuk
+          i = segEnd;
+          continue;
+        }
+      }
+
+      kept.push(...bytes.subarray(segStart, segEnd));
+      i = segEnd;
+    }
+    if (i < bytes.length) {
+      // ha valamiért nem másoltuk a végét
+      kept.push(...bytes.subarray(i));
+    }
+
+    // 2) Új PEHELY komment beszúrása SOI után
+    const encoder = new TextEncoder();
+    const commentBytes = encoder.encode('PEHELY-' + codeString);
+    const len = commentBytes.length + 2;
+
+    const keptBytes = new Uint8Array(kept);
+    const newBytes = new Uint8Array(keptBytes.length + commentBytes.length + 4);
+    let o = 0;
+
+    // SOI
+    newBytes[o++] = 0xFF;
+    newBytes[o++] = 0xD8;
+
+    // COM
+    newBytes[o++] = 0xFF;
+    newBytes[o++] = 0xFE;
+    newBytes[o++] = (len >> 8) & 0xFF;
+    newBytes[o++] = len & 0xFF;
+    newBytes.set(commentBytes, o);
+    o += commentBytes.length;
+
+    // rest (SOI után)
+    newBytes.set(keptBytes.subarray(2), o);
+
+    return new Blob([newBytes], { type: 'image/jpeg' });
+  }
+
+  // ============================================================
+  //  KOMPLEX meta
+  // ============================================================
+
+  const KOMPLEX_PREFIX = 'KOMPLEX-';
+  // V02-től: ha T=(KT-BT)<0, akkor a JPG-ben a pehely színe sárga.
+  function roundTo1D(x) {
     return Math.round(x * 10) / 10;
   }
 
-  function computeLoopArea(points) {
-    const pts = points || [];
-    if (pts.length < 3) return 0;
-    let area = 0;
-    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
-      const xi = pts[i][0], yi = pts[i][1];
-      const xj = pts[j][0], yj = pts[j][1];
-      area += (xj * yi - xi * yj);
-    }
-    return 0.5 * area;
-  }
+  // (Összevonva) computeLoopArea + _polyArea → signedPolygonArea
 
   function computeKomplexFromContoursWithFlags(contoursWithFlags) {
-    const loops = Array.isArray(contoursWithFlags) ? contoursWithFlags : [];
+    const polygonsWithFlags = Array.isArray(contoursWithFlags) ? contoursWithFlags : [];
     // KM/BM = Külső/Belső mennyiség (hurkok száma)
     // KP/BP = Külső/Belső pontok száma (összes csúcs a hurkokon)
     // KH/BH = Külső/Belső kerület (vágáshossz) [mm]
@@ -2232,7 +2540,7 @@ function createJpegBlobForCode(code, paramsOrTheme = null) {
     let kfSum = 0, kfCnt = 0;
     let bfSum = 0, bfCnt = 0;
 
-    for (const c of loops) {
+    for (const c of polygonsWithFlags) {
       if (!c || !Array.isArray(c.points) || c.points.length < 3) continue;
       const ptsAll = c.points;
       const p0 = ptsAll[0];
@@ -2251,7 +2559,7 @@ function createJpegBlobForCode(code, paramsOrTheme = null) {
       }
 
       // Terület (mm^2)
-      const areaAbs = Math.abs(computeLoopArea(unique));
+      const areaAbs = Math.abs(signedPolygonArea(unique));
 
       // Átlagos csúcsszög (0..180°) - összeg/cnt
       let localSum = 0, localCnt = 0;
@@ -2304,12 +2612,12 @@ function createJpegBlobForCode(code, paramsOrTheme = null) {
       BM,
       KP,
       BP,
-      KH: round1(KH),
-      BH: round1(BH),
-      KT: round1(KT),
-      BT: round1(BT),
-      KF: round1(KF),
-      BF: round1(BF)
+      KH: roundTo1D(KH),
+      BH: roundTo1D(BH),
+      KT: roundTo1D(KT),
+      BT: roundTo1D(BT),
+      KF: roundTo1D(KF),
+      BF: roundTo1D(BF)
     };
   }
 
@@ -2330,13 +2638,13 @@ function createJpegBlobForCode(code, paramsOrTheme = null) {
     const BM = Number.isFinite(metrics.BM) ? Math.trunc(metrics.BM) : 0;
     const KP = Number.isFinite(metrics.KP) ? Math.trunc(metrics.KP) : 0;
     const BP = Number.isFinite(metrics.BP) ? Math.trunc(metrics.BP) : 0;
-    const KH = Number.isFinite(metrics.KH) ? round1(metrics.KH) : 0;
-    const BH = Number.isFinite(metrics.BH) ? round1(metrics.BH) : 0;
-    const KT = Number.isFinite(metrics.KT) ? round1(metrics.KT) : 0;
-    const BT = Number.isFinite(metrics.BT) ? round1(metrics.BT) : 0;
-    const KF = Number.isFinite(metrics.KF) ? round1(metrics.KF) : 0;
-    const BF = Number.isFinite(metrics.BF) ? round1(metrics.BF) : 0;
-    return `${KOMPLEX_PREFIX}${KOMPLEX_TAG};KM=${KM};BM=${BM};KP=${KP};BP=${BP};KH=${KH};BH=${BH};KT=${KT};BT=${BT};KF=${KF};BF=${BF}`;
+    const KH = Number.isFinite(metrics.KH) ? roundTo1D(metrics.KH) : 0;
+    const BH = Number.isFinite(metrics.BH) ? roundTo1D(metrics.BH) : 0;
+    const KT = Number.isFinite(metrics.KT) ? roundTo1D(metrics.KT) : 0;
+    const BT = Number.isFinite(metrics.BT) ? roundTo1D(metrics.BT) : 0;
+    const KF = Number.isFinite(metrics.KF) ? roundTo1D(metrics.KF) : 0;
+    const BF = Number.isFinite(metrics.BF) ? roundTo1D(metrics.BF) : 0;
+    return `${KOMPLEX_PREFIX}${PehelyCore.komplexCodeVersion};KM=${KM};BM=${BM};KP=${KP};BP=${BP};KH=${KH};BH=${BH};KT=${KT};BT=${BT};KF=${KF};BF=${BF}`;
   }
 
   function parseKomplexCommentText(text) {
@@ -2346,9 +2654,10 @@ function createJpegBlobForCode(code, paramsOrTheme = null) {
     const sub = String(text).substring(idx).trim();
     const parts = sub.split(';').filter(Boolean);
     if (!parts.length) return null;
-    // parts[0] = 'KOMPLEX-V01'
+    // parts[0] = 'KOMPLEX-V01' vagy 'KOMPLEX-V02'...
     const head = parts.shift();
     if (!head || head.indexOf(KOMPLEX_PREFIX) !== 0) return null;
+    const tag = head.substring(KOMPLEX_PREFIX.length);
 
     const out = {};
     for (const p of parts) {
@@ -2381,7 +2690,6 @@ function createJpegBlobForCode(code, paramsOrTheme = null) {
       KP = Number.isFinite(out.KP) ? Math.trunc(out.KP) : 0;
       BP = Number.isFinite(out.BP) ? Math.trunc(out.BP) : 0;
     } else {
-      // Régi (v82.6-v82.9): KP/BP a mennyiség volt.
       KM = Number.isFinite(out.KP) ? Math.trunc(out.KP) : 0;
       BM = Number.isFinite(out.BP) ? Math.trunc(out.BP) : 0;
       KP = 0;
@@ -2389,6 +2697,7 @@ function createJpegBlobForCode(code, paramsOrTheme = null) {
     }
 
     return {
+      _tag: tag,
       KM,
       BM,
       KP,
@@ -2511,145 +2820,8 @@ function createJpegBlobForCode(code, paramsOrTheme = null) {
   }
 
 
-  function listPehelyCodesFromJpegArrayBuffer(arrayBuffer) {
-    const bytes = new Uint8Array(arrayBuffer);
-    if (bytes.length < 4 || bytes[0] !== 0xFF || bytes[1] !== 0xD8) return [];
-    const out = [];
-    let i = 2;
-    while (i + 4 <= bytes.length) {
-      if (bytes[i] !== 0xFF) { i++; continue; }
-      const marker = bytes[i + 1];
-      if (marker === 0xD9 || marker === 0xDA) break; // EOI / SOS
-      const len = (bytes[i + 2] << 8) | bytes[i + 3];
-      if (len < 2 || i + 2 + len > bytes.length) break;
 
-      if (marker === 0xFE) { // COM
-        const start = i + 4;
-        const end   = i + 2 + len;
-        const comBytes = bytes.subarray(start, end);
-        const decoder  = new TextDecoder('utf-8');
-        const text     = decoder.decode(comBytes);
-        const idx      = text.indexOf('PEHELY-');
-        if (idx !== -1) {
-          const code = text.substring(idx + 7).trim();
-          if (code) out.push(code);
-        }
-      }
-      i += 2 + len;
-    }
-    return out;
-  }
-
-  function parseCodeFromJpegArrayBuffer(arrayBuffer) {
-    const codes = listPehelyCodesFromJpegArrayBuffer(arrayBuffer);
-    return codes.length ? codes[codes.length - 1] : null; // legutolsó a legfrissebb
-  }
-
-  function replacePehelyCodeInJpegArrayBuffer(arrayBuffer, codeString) {
-    const bytes = new Uint8Array(arrayBuffer);
-    if (bytes.length < 4 || bytes[0] !== 0xFF || bytes[1] !== 0xD8) {
-      // nem JPEG: egyszerűen visszaadjuk az eredetit
-      return new Blob([bytes], { type: 'image/jpeg' });
-    }
-
-    // 1) PEHELY kommentek kiszűrése (SOS előtt)
-    const kept = [];
-    kept.push(0xFF, 0xD8);
-    let i = 2;
-    while (i + 4 <= bytes.length) {
-      if (bytes[i] !== 0xFF) { break; }
-      const marker = bytes[i + 1];
-
-      if (marker === 0xDA) { // SOS: innentől adatfolyam, másoljuk a maradékot
-        kept.push(...bytes.subarray(i));
-        i = bytes.length;
-        break;
-      }
-      if (marker === 0xD9) { // EOI
-        kept.push(0xFF, 0xD9);
-        i += 2;
-        break;
-      }
-
-      const len = (bytes[i + 2] << 8) | bytes[i + 3];
-      if (len < 2 || i + 2 + len > bytes.length) {
-        // hibás szegmens – inkább az egészet hagyjuk érintetlenül
-        return new Blob([bytes], { type: 'image/jpeg' });
-      }
-
-      const segStart = i;
-      const segEnd = i + 2 + len;
-
-      if (marker === 0xFE) { // COM
-        const start = i + 4;
-        const end   = segEnd;
-        const comBytes = bytes.subarray(start, end);
-        const decoder  = new TextDecoder('utf-8');
-        const text     = decoder.decode(comBytes);
-        if (text.indexOf('PEHELY-') !== -1) {
-          // dobjuk
-          i = segEnd;
-          continue;
-        }
-      }
-
-      kept.push(...bytes.subarray(segStart, segEnd));
-      i = segEnd;
-    }
-    if (i < bytes.length) {
-      // ha valamiért nem másoltuk a végét
-      kept.push(...bytes.subarray(i));
-    }
-
-    // 2) Új PEHELY komment beszúrása SOI után
-    const encoder = new TextEncoder();
-    const commentBytes = encoder.encode('PEHELY-' + codeString);
-    const len = commentBytes.length + 2;
-
-    const keptBytes = new Uint8Array(kept);
-    const newBytes = new Uint8Array(keptBytes.length + commentBytes.length + 4);
-    let o = 0;
-
-    // SOI
-    newBytes[o++] = 0xFF;
-    newBytes[o++] = 0xD8;
-
-    // COM
-    newBytes[o++] = 0xFF;
-    newBytes[o++] = 0xFE;
-    newBytes[o++] = (len >> 8) & 0xFF;
-    newBytes[o++] = len & 0xFF;
-    newBytes.set(commentBytes, o);
-    o += commentBytes.length;
-
-    // rest (SOI után)
-    newBytes.set(keptBytes.subarray(2), o);
-
-    return new Blob([newBytes], { type: 'image/jpeg' });
-  }
-PehelyCore.segmentToPolys = segmentToPolys;
-  PehelyCore.computePolysForParams = computePolysForParams;
-  PehelyCore.computePolysForCode = computePolysForCode;
-  PehelyCore.buildLaserContoursExact = buildLaserContoursExact;
-  PehelyCore.computeHangingHole = computeHangingHole;
-  PehelyCore.computeContoursForParams = computeContoursForParams;
-  PehelyCore.computeContoursForCode = computeContoursForCode;
-  PehelyCore.addJpegCommentToArrayBuffer = addJpegCommentToArrayBuffer;
-  PehelyCore.blobToArrayBuffer = blobToArrayBuffer;
-  PehelyCore.createJpegBlobForCode = createJpegBlobForCode;
-  PehelyCore.parseCodeFromJpegArrayBuffer = parseCodeFromJpegArrayBuffer;
-
-  PehelyCore.listPehelyCodesFromJpegArrayBuffer = listPehelyCodesFromJpegArrayBuffer;
-  PehelyCore.replacePehelyCodeInJpegArrayBuffer = replacePehelyCodeInJpegArrayBuffer;
-  PehelyCore.listKomplexFromJpegArrayBuffer = listKomplexFromJpegArrayBuffer;
-  PehelyCore.parseKomplexFromJpegArrayBuffer = parseKomplexFromJpegArrayBuffer;
-  PehelyCore.replaceKomplexInJpegArrayBuffer = replaceKomplexInJpegArrayBuffer;
-  PehelyCore.computeKomplexFromContoursWithFlags = computeKomplexFromContoursWithFlags;
-  PehelyCore.computeKomplexForParams = computeKomplexForParams;
-  PehelyCore.computeKomplexForCode = computeKomplexForCode;
-  PehelyCore.formatKomplexComment = formatKomplexComment;
-
-  
+  initExports();
 
   global.PehelyCore = PehelyCore;
 })(typeof window !== 'undefined' ? window : globalThis);

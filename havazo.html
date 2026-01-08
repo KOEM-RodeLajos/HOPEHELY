@@ -64,7 +64,7 @@
       background: #e9ecef;
       color: #222;
     }
-    button.primary, .btn-primary {
+    button.primary {
       background: #0d6efd;
       color: #fff;
     }
@@ -240,16 +240,24 @@
       gap: 0.6rem;
     }
     .preview-image-wrapper {
-      max-width: 80vw;
-      max-height: 70vh;
+      max-width: 90vw;
+      max-height: 80vh;
       display: flex;
       align-items: center;
       justify-content: center;
+      position: relative;
     }
     #previewImage {
       max-width: 100%;
       max-height: 100%;
       border-radius: 8px;
+      display: block;
+    }
+    #previewCanvas {
+      position: absolute;
+      left: 0;
+      top: 0;
+      pointer-events: none;
     }
     #previewCode {
       display: none;
@@ -262,11 +270,50 @@
       position: absolute;
       top: 0.25rem;
       right: 0.6rem;
-      background: transparent;
+      background: rgba(0,0,0,0.45);
+      border-radius: 999px;
+      width: 24px;
+      height: 24px;
+      line-height: 22px;
       border: none;
       color: #ffffff;
       font-size: 1.3rem;
       cursor: pointer;
+      z-index: 2;
+    }
+    .algo-row {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      flex-wrap: wrap;
+    }
+    .algo-controls {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      flex-wrap: wrap;
+    }
+    .algo-controls label {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-size: 0.85rem;
+      color: rgba(255,255,255,0.9);
+    }
+    .algo-controls input[type="number"] {
+      width: 3.2rem;
+      padding: 0.1rem 0.2rem;
+      text-align: center;
+    }
+    .inline-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-size: 0.9rem;
+      color: #ffffff;
+      background: rgba(0,0,0,0.2);
+      padding: 0.25rem 0.5rem;
+      border-radius: 6px;
     }
 
     @media (max-width: 700px) {
@@ -390,6 +437,16 @@
 </div>
 
       <div class="algo-row">
+        <div class="algo-controls">
+          <label>
+            Kontúr szín:
+            <input id="contourColorInput" type="color" value="#ffd400">
+          </label>
+          <label>
+            Vonal:
+            <input id="contourWidthInput" type="number" min="0.5" max="6" step="0.1" value="1.1">
+          </label>
+        </div>
         <label style="width:100%;">
           Algoritmus összefoglaló:
           <textarea id="dxfAlgoDesc" rows="2" readonly></textarea>
@@ -406,6 +463,7 @@
         </div>
         <button id="bulkApplyBtn" class="secondary">mind</button>
         <button id="testBtn" class="secondary">TESZT</button>
+        <label class="inline-toggle"><input id="contourCheckToggle" type="checkbox"> kontur check</label>
         <button id="saveAllBtn" class="primary">MENTÉS</button>
       </div>
       <div id="saveProgressArea" style="display:none; align-items:center; gap:0.5rem; margin-top:0.5rem;">
@@ -420,9 +478,10 @@
 <!-- Nagy előnézet overlay -->
 <div id="previewOverlay">
   <div class="preview-content" id="previewContent">
-    <button id="previewCloseBtn" title="Bezárás">✕</button>
+    <button id="previewCloseBtn" title="Bezárás">x</button>
     <div class="preview-image-wrapper">
       <img id="previewImage" src="" alt="Hópelyhes előnézet">
+      <canvas id="previewCanvas"></canvas>
     </div>
     <div id="previewCode"></div>
   </div>
@@ -431,28 +490,32 @@
 <script src="./pehely-core.js"></script>
 
 <script>
+  'use strict';
+
+  // Debug log (alapból csendes). Állítsd a konzolban: window.PEHELY_DEBUG = true
+  const DEBUG = !!window.PEHELY_DEBUG;
+  const dbgWarn = (...args) => { if (DEBUG && window.console && window.console.warn) window.console.warn(...args); };
+
+
 
   // ====== PehelyCore (közös algoritmus modul) ======
-  const PC = window.PehelyCore;
-  if (!PC) {
-    alert('Hiányzik a PehelyCore (pehely-core.js). Tedd a HTML-ek mellé ugyanabba a mappába. Ha csak verziószámos (pl. pehely-core_v80.js) van, nevezd át pehely-core.js-re.');
+  const PehelyCore = window.PehelyCore;
+  if (!PehelyCore) {
+    alert('Hiányzik a PehelyCore (pehely-core.js). Tedd a HTML-ek mellé ugyanabba a mappába. Ha csak verziószámos (pl. pehely-core_vXX.js) van, nevezd át pehely-core.js-re.');
     throw new Error('PehelyCore hiányzik');
   }
   const {
     paramsFromCode,
-    buildSnowflakeSegments,
-    // FONTOS: ne vegyük fel computeContoursForCode néven, mert lent ugyanilyen
-    // néven van egy helyi (cache-elő) wrapperünk. Ha mindkettő ugyanaz a név,
-    // az szintaktikai hibát okoz, és emiatt SEMMILYEN gomb nem fog működni.
-    computeContoursForCode: coreComputeContoursForCode,
-    computeContoursForParams,
-    computePolysForCode,
-    createJpegBlobForCode,
-    parseCodeFromJpegArrayBuffer,
+    buildSnowflakeSegments,  // FONTOS: a core computeContoursForCode-t itt nem vesszük fel név szerint,
+  // mert lent van egy helyi (cache-elő) wrapperünk ugyanazzal a névvel.
+computeContoursForParams,
+    computePolygonsForCode,
+    jpegCreateCodeBlob,
+    jpegParsePehelyCode,
     parseKomplexFromJpegArrayBuffer,
     computeKomplexForCode,
-    addJpegCommentToArrayBuffer
-  } = PC;
+    jpegAddComment
+  } = PehelyCore;
 
   // ====== Általános segédek ======
   function downloadBlob(blob, filename) {
@@ -501,7 +564,7 @@
         mode = outDirHandle ? 'dir' : 'download';
         return outDirHandle;
       } catch (e) {
-        console.warn('Kimeneti mappa kiválasztása megszakítva vagy hiba:', e);
+        dbgWarn('Kimeneti mappa kiválasztása megszakítva vagy hiba:', e);
         mode = 'download';
         outDirHandle = null;
         return null;
@@ -522,7 +585,7 @@
           try {
             await writeToDir(dir, f.name, f.blob);
           } catch (e) {
-            console.warn('Nem sikerült mappába menteni, letöltés lesz:', e);
+            dbgWarn('Nem sikerült mappába menteni, letöltés lesz:', e);
             downloadBlob(f.blob, f.name);
           }
         }
@@ -537,21 +600,10 @@
       outDirHandle = dirHandleOrNull || null;
       mode = outDirHandle ? 'dir' : 'unknown';
     }
-
-    function reset() {
-      outDirHandle = null;
-      mode = 'unknown';
-    }
-
-    return { saveMany, ensureOutDir, setOutDirHandle, reset };
+    return { saveMany, ensureOutDir, setOutDirHandle };
   })();
 
 
-
-  async function saveWithPickerOrDownload(suggestedName, mimeType, content) {
-    const blob = (content instanceof Blob) ? content : new Blob([content], { type: mimeType });
-    await saveManager.saveMany([{ name: suggestedName, blob }]);
-  }
 
   function formatTimestampForName(date) {
     const pad = (n) => String(n).padStart(2, '0');
@@ -566,7 +618,7 @@
 
   // ====== PEHELY-kód kezelése + geometria (kompatibilis a generátorral) ======
 
-  const DXF_TARGET_SIZE = PC.DXF_TARGET_SIZE; // mm (core-ból)
+  const DXF_TARGET_SIZE = PehelyCore.DXF_TARGET_SIZE; // mm (core-ból)
   const geometryCache = new Map(); // code -> { contoursWithFlags }
 
   // [KISZERVEZVE pehely-core.js-be] paramsFromCode
@@ -593,10 +645,10 @@
   // [KISZERVEZVE pehely-core.js-be] buildTrapHexFromEdge
 
 
-  // [KISZERVEZVE pehely-core.js-be] segmentToPolys
+  // [KISZERVEZVE pehely-core.js-be] segmentToPolygons
 
 
-  // [KISZERVEZVE pehely-core.js-be] pointInPolygon
+  // [KISZERVEZVE pehely-core.js-be] isPointInPolygon
 
 
   // [KISZERVEZVE pehely-core.js-be] buildLaserContoursExact
@@ -613,49 +665,30 @@
     return result;
   }
 
-  // [KISZERVEZVE pehely-core.js-be] computePolysForCode
+  // [KISZERVEZVE pehely-core.js-be] computePolygonsForCode
 
 
-  // [KISZERVEZVE pehely-core.js-be] addJpegCommentToArrayBuffer
+  // [KISZERVEZVE pehely-core.js-be] jpegAddComment
 
 
-  // [KISZERVEZVE pehely-core.js-be] createJpegBlobForCode
+  // [KISZERVEZVE pehely-core.js-be] jpegCreateCodeBlob
 
 
-  // [KISZERVEZVE pehely-core.js-be] parseCodeFromJpegArrayBuffer
+  // [KISZERVEZVE pehely-core.js-be] jpegParsePehelyCode
 
-
-  async function readCodeFromJpegFileHandle(fileHandle) {
-    const file = await fileHandle.getFile();
-    const arrayBuffer = await file.arrayBuffer();
-    const raw = parseCodeFromJpegArrayBuffer(arrayBuffer);
-    if (!raw) return null;
-    return PC.upgradeCodeToCurrent(raw);
-  }
-  async function readCodeFromJpegFile(file) {
-    try {
-      const arrayBuffer = await file.arrayBuffer();
-      const raw = parseCodeFromJpegArrayBuffer(arrayBuffer);
-      if (!raw) return null;
-      return PC.upgradeCodeToCurrent(raw);
-    } catch (e) {
-      console.warn('Nem sikerült a JPG beolvasása:', e);
-      return null;
-    }
-  }
 
   async function readMetaFromJpegFileHandle(fileHandle) {
     try {
       const file = await fileHandle.getFile();
       const arrayBuffer = await file.arrayBuffer();
-      const raw = parseCodeFromJpegArrayBuffer(arrayBuffer);
+      const raw = jpegParsePehelyCode(arrayBuffer);
       if (!raw) return null;
-      const code = PC.upgradeCodeToCurrent(raw);
+      const code = PehelyCore.upgradeCodeToCurrent(raw);
       let komplex = null;
       try { komplex = parseKomplexFromJpegArrayBuffer(arrayBuffer); } catch {}
       return { code, komplex, file };
     } catch (e) {
-      console.warn('Nem sikerült a JPG beolvasása:', e);
+      dbgWarn('Nem sikerült a JPG beolvasása:', e);
       return null;
     }
   }
@@ -663,14 +696,14 @@
   async function readMetaFromJpegFile(file) {
     try {
       const arrayBuffer = await file.arrayBuffer();
-      const raw = parseCodeFromJpegArrayBuffer(arrayBuffer);
+      const raw = jpegParsePehelyCode(arrayBuffer);
       if (!raw) return null;
-      const code = PC.upgradeCodeToCurrent(raw);
+      const code = PehelyCore.upgradeCodeToCurrent(raw);
       let komplex = null;
       try { komplex = parseKomplexFromJpegArrayBuffer(arrayBuffer); } catch {}
       return { code, komplex };
     } catch (e) {
-      console.warn('Nem sikerült a JPG beolvasása:', e);
+      dbgWarn('Nem sikerült a JPG beolvasása:', e);
       return null;
     }
   }
@@ -722,10 +755,145 @@
   const previewCodeEl  = document.getElementById('previewCode');
   const previewCloseBtn= document.getElementById('previewCloseBtn');
   const previewContent = document.getElementById('previewContent');
+  const contourCheckToggle = document.getElementById('contourCheckToggle');
+  const previewCanvas = document.getElementById('previewCanvas');
+  const contourColorInput = document.getElementById('contourColorInput');
+  const contourWidthInput = document.getElementById('contourWidthInput');
+  let previewImageObjectUrl = null;
+  let previewRequestId = 0;
+  let currentPreviewItem = null;
 
-  function openPreviewForItem(item) {
+  function getPreviewAlgo() {
+    const raw = (document.getElementById('dxfAlgoSelect')?.value || 'B');
+    return (raw === 'all') ? 'B' : raw;
+  }
+
+  function resetPreviewImageUrl() {
+    if (!previewImageObjectUrl) return;
+    try { URL.revokeObjectURL(previewImageObjectUrl); } catch (_) {}
+    previewImageObjectUrl = null;
+  }
+
+  function clearPreviewCanvas() {
+    if (!previewCanvas) return;
+    const ctx = previewCanvas.getContext('2d');
+    ctx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+    previewCanvas.style.display = 'none';
+  }
+
+  function computeJpegTransform(polygonData, canvasWidth, canvasHeight) {
+    const minX = polygonData.minX;
+    const maxX = polygonData.maxX;
+    const minY = polygonData.minY;
+    const maxY = polygonData.maxY;
+    const width = (maxX - minX) || 1;
+    const height = (maxY - minY) || 1;
+    const marginX = 40;
+    const topMargin = 40;
+    const textSpace = 70;
+    const drawWidth = canvasWidth - 2 * marginX;
+    const drawHeight = canvasHeight - topMargin - textSpace;
+    const scale = 0.95 * Math.min(drawWidth / width, drawHeight / height);
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    const originX = canvasWidth / 2;
+    const originY = topMargin + drawHeight / 2;
+    return { scale, cx, cy, originX, originY };
+  }
+
+  function drawContoursOnPreview(code) {
+    if (!previewCanvas || !previewImage) return;
+    const geom = computeContoursForCode(code, getPreviewAlgo());
+    if (!geom || !geom.contoursWithFlags || !geom.contoursWithFlags.length) {
+      clearPreviewCanvas();
+      return;
+    }
+    const polyData = computePolygonsForCode(code);
+    if (!polyData) {
+      clearPreviewCanvas();
+      return;
+    }
+    const w = previewImage.clientWidth || previewImage.naturalWidth || 0;
+    const h = previewImage.clientHeight || previewImage.naturalHeight || 0;
+    if (!w || !h) {
+      clearPreviewCanvas();
+      return;
+    }
+    previewCanvas.width = Math.round(w);
+    previewCanvas.height = Math.round(h);
+    previewCanvas.style.width = w + 'px';
+    previewCanvas.style.height = h + 'px';
+    previewCanvas.style.display = 'block';
+
+    const ctx = previewCanvas.getContext('2d');
+    ctx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    const widthVal = contourWidthInput ? parseFloat(contourWidthInput.value) : 1.1;
+    ctx.lineWidth = Number.isFinite(widthVal) ? widthVal : 1.1;
+    let strokeColor = (contourColorInput && contourColorInput.value) ? contourColorInput.value : '#ffd400';
+    const komplex = PehelyCore.computeKomplexFromContoursWithFlags(geom.contoursWithFlags);
+    const tNet = (komplex && Number.isFinite(komplex.KT) && Number.isFinite(komplex.BT))
+      ? (Number(komplex.KT) - Number(komplex.BT))
+      : null;
+    if (tNet !== null && Number.isFinite(tNet) && tNet < 0) strokeColor = '#000000';
+    ctx.strokeStyle = strokeColor;
+
+    const t = computeJpegTransform(polyData, previewCanvas.width, previewCanvas.height);
+    for (const c of geom.contoursWithFlags) {
+      const pts = c.points;
+      if (!pts || pts.length < 2) continue;
+      ctx.beginPath();
+      for (let i = 0; i < pts.length; i++) {
+        const x = pts[i][0];
+        const y = pts[i][1];
+        const sx = t.originX + (x - t.cx) * t.scale;
+        const sy = t.originY - (y - t.cy) * t.scale;
+        if (i === 0) ctx.moveTo(sx, sy);
+        else ctx.lineTo(sx, sy);
+      }
+      ctx.stroke();
+    }
+  }
+
+  function refreshPreviewOverlay() {
+    if (!previewOverlay.classList.contains('active')) return;
+    if (!currentPreviewItem) return;
+    openPreviewForItem(currentPreviewItem);
+  }
+
+  async function openPreviewForItem(item) {
     if (!item || !item.imgURL) return;
-    previewImage.src = item.imgURL;
+    currentPreviewItem = item;
+    const requestId = ++previewRequestId;
+    const contourEnabled = !!(contourCheckToggle && contourCheckToggle.checked);
+    let imgUrl = item.imgURL;
+
+    if (contourEnabled) {
+      try {
+        const theme = item.isVirtual ? 'bordo' : 'blue';
+        const blob = await jpegCreateCodeBlob(item.code, theme);
+        if (requestId !== previewRequestId) return;
+        if (blob) {
+          resetPreviewImageUrl();
+          previewImageObjectUrl = URL.createObjectURL(blob);
+          imgUrl = previewImageObjectUrl;
+        }
+      } catch (e) {
+        dbgWarn('Kontur check eloallo kep hiba:', e);
+      }
+    } else {
+      resetPreviewImageUrl();
+    }
+    previewImage.onload = () => {
+      if (requestId !== previewRequestId) return;
+      if (contourEnabled) {
+        requestAnimationFrame(() => drawContoursOnPreview(item.code));
+      } else {
+        clearPreviewCanvas();
+      }
+    };
+    previewImage.src = imgUrl;
 
     // A felugróban csak a kód maradjon: ha több sor van és valamelyik sorban szerepel a "PEHELY" szó, azt a sort kihagyjuk.
     const raw = (item && item.code != null) ? String(item.code) : '';
@@ -744,6 +912,9 @@
 
   function closePreview() {
     previewOverlay.classList.remove('active');
+    clearPreviewCanvas();
+    resetPreviewImageUrl();
+    currentPreviewItem = null;
   }
 
   previewCloseBtn.addEventListener('click', (e) => {
@@ -759,6 +930,25 @@
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') closePreview();
   });
+  if (contourCheckToggle) {
+    contourCheckToggle.addEventListener('change', refreshPreviewOverlay);
+  }
+  if (contourColorInput) {
+    contourColorInput.addEventListener('input', () => {
+      if (contourCheckToggle && contourCheckToggle.checked) refreshPreviewOverlay();
+    });
+  }
+  if (contourWidthInput) {
+    contourWidthInput.addEventListener('input', () => {
+      if (contourCheckToggle && contourCheckToggle.checked) refreshPreviewOverlay();
+    });
+  }
+  const previewAlgoSelect = document.getElementById('dxfAlgoSelect');
+  if (previewAlgoSelect) {
+    previewAlgoSelect.addEventListener('change', () => {
+      if (contourCheckToggle && contourCheckToggle.checked) refreshPreviewOverlay();
+    });
+  }
 
   function createCardForItem(item) {
     const card = document.createElement('div');
@@ -865,7 +1055,7 @@ function refreshCardsGrid() {
         await scanSources();
         return;
       } catch (e) {
-        console.warn('Mappa kijelölése sikertelen (fallback következik):', e);
+        dbgWarn('Mappa kijelölése sikertelen (fallback következik):', e);
       }
     }
 
@@ -931,16 +1121,16 @@ function refreshCardsGrid() {
         itemsByCode.set(code, item);
       }
     } catch (e) {
-      console.error('Hiba a fájlok beolvasása közben:', e);
+      PehelyCore.logError('Hiba a fájlok beolvasása közben:', e);
     }
 
     // Régi lista alapján hiányzók virtuális generálása (ugyanúgy, mint mappánál)
     const codesInJson = Array.from(quantitiesFromJson.keys());
     for (const code of codesInJson) {
-            const upgradedCode = (() => { try { return PC.upgradeCodeToCurrent(code); } catch { return code; } })();
+            const upgradedCode = (() => { try { return PehelyCore.upgradeCodeToCurrent(code); } catch { return code; } })();
       if (!itemsByCode.has(upgradedCode)) {
         try {
-          const blob = await createJpegBlobForCode(upgradedCode, 'bordo');
+          const blob = await jpegCreateCodeBlob(upgradedCode, 'bordo');
           if (!blob) continue;
           const url = URL.createObjectURL(blob);
           const qty = quantitiesFromJson.get(upgradedCode) || 0;
@@ -960,7 +1150,7 @@ function refreshCardsGrid() {
           items.push(item);
           itemsByCode.set(upgradedCode, item);
         } catch (e) {
-          console.error('Virtuális kép generálási hiba:', e);
+          PehelyCore.logError('Virtuális kép generálási hiba:', e);
         }
       }
     }
@@ -986,7 +1176,7 @@ function refreshCardsGrid() {
       saveManager.setOutDirHandle(handle);
       await scanSources();
     } catch (e) {
-      console.warn('Mappa kijelölése megszakítva vagy hiba:', e);
+      dbgWarn('Mappa kijelölése megszakítva vagy hiba:', e);
     }
   }
 
@@ -1003,7 +1193,7 @@ async function scanSources() {
         if (!it || typeof it.code !== 'string') continue;
         const count = Number.isFinite(it.count) ? it.count : 0;
         try {
-          const upgraded = PC.upgradeCodeToCurrent(it.code);
+          const upgraded = PehelyCore.upgradeCodeToCurrent(it.code);
           quantitiesFromJson.set(upgraded, count);
         } catch (e) {
           // ha teljesen rossz kód lenne, tartsuk meg eredetiben
@@ -1056,7 +1246,7 @@ async function scanSources() {
       applyQuantitiesFromJsonData(data);
       scanSources().then(() => suggestWorkFolderIfMissing());
     }).catch(e => {
-      console.error('JSON beolvasási hiba:', e);
+      PehelyCore.logError('JSON beolvasási hiba:', e);
       alert('Nem sikerült beolvasni a JSON-t.');
     });
   }
@@ -1104,13 +1294,13 @@ async function scanCurrentFolder() {
         }
       }
     } catch (e) {
-      console.error('Hiba a mappa olvasása közben:', e);
+      PehelyCore.logError('Hiba a mappa olvasása közben:', e);
     }
 
     for (const [code, qty] of quantitiesFromJson.entries()) {
       if (!itemsByCode.has(code)) {
         try {
-          const blob = await createJpegBlobForCode(code, 'bordo');
+          const blob = await jpegCreateCodeBlob(code, 'bordo');
           if (!blob) continue;
           const url = URL.createObjectURL(blob);
           const komplex = (() => { try { return computeKomplexForCode(code, 'B'); } catch { return null; } })();
@@ -1128,7 +1318,7 @@ async function scanCurrentFolder() {
           items.push(item);
           itemsByCode.set(code, item);
         } catch (e) {
-          console.error('Virtuális kép generálási hiba:', e);
+          PehelyCore.logError('Virtuális kép generálási hiba:', e);
         }
       }
     }
@@ -1163,7 +1353,7 @@ async function scanCurrentFolder() {
         if (e && e.name === 'AbortError') return;
 
         // Egyéb hiba esetén (pl. jogosultság/korlátozás) menjünk fallback-re.
-        console.warn('Lista betöltése showOpenFilePicker-rel nem sikerült, fallback lesz:', e);
+        dbgWarn('Lista betöltése showOpenFilePicker-rel nem sikerült, fallback lesz:', e);
       }
     }
 
@@ -1206,12 +1396,12 @@ async function scanCurrentFolder() {
 
     for (const code of missingCodes) {
       try {
-        const blob = await createJpegBlobForCode(code);
+        const blob = await jpegCreateCodeBlob(code);
         if (!blob) continue;
         blobsByCode.set(code, blob);
         files.push({ name: `PEHELY-${code}.jpg`, blob });
       } catch (e) {
-        console.error('Hiba a kép generálásakor:', e);
+        PehelyCore.logError('Hiba a kép generálásakor:', e);
       }
     }
 
@@ -1257,12 +1447,6 @@ async function scanCurrentFolder() {
 
   // ====== DXF + JSON mentés (MENTÉS gomb) ======
 
-  function translateContour(contour, dx, dy) {
-    const unique = contour.slice(0, contour.length - 1);
-    const translated = unique.map(([x,y]) => [x + dx, y + dy]);
-    translated.push(translated[0].slice());
-    return translated;
-  }
 
 
   // ====== Mentés állapotjelző ======
@@ -1366,12 +1550,26 @@ async function scanCurrentFolder() {
               if (y > maxY) maxY = y;
             }
           }
+          const komplex = PehelyCore.computeKomplexFromContoursWithFlags(contours);
+          const tNet = (komplex && Number.isFinite(komplex.KT) && Number.isFinite(komplex.BT))
+            ? (Number(komplex.KT) - Number(komplex.BT))
+            : null;
+          const badT = (tNet !== null && Number.isFinite(tNet) && tNet < 0);
+          if (badT) {
+            const cx = (minX + maxX) / 2;
+            const cy = (minY + maxY) / 2;
+            const half = Number(PehelyCore.TRUNK_LENGTH) || 50;
+            minX = cx - half;
+            maxX = cx + half;
+            minY = cy - half;
+            maxY = cy + half;
+          }
           const width  = maxX - minX;
           const height = maxY - minY;
           maxWidth  = Math.max(maxWidth, width);
           maxHeight = Math.max(maxHeight, height);
 
-          flakeData.push({ code, count, contours, minX, maxX, minY, maxY, width, height });
+          flakeData.push({ code, count, contours, minX, maxX, minY, maxY, width, height, badT });
           geomDone++;
           setSaveProgress(instanceDone, progressMax, `Geometria számítás… ${geomDone}/${nonZeroCodes}`);
           await saveUiTick();
@@ -1394,7 +1592,7 @@ async function scanCurrentFolder() {
           const SHEET_SPACING = 100.0; // mm, két kirakási terület közt
 
           // Blokk név: a PEHELY-kód DXF-kompatibilis változata (core-ban egységesítve)
-          const blockNameForCode = (code) => (algo + '_' + PC.blockNameFromCode(code));
+          const blockNameForCode = (code) => (algo + '_' + PehelyCore.blockNameFromCode(code));
 
           // BLOCK-ok előkészítése: a core generálja a DXF-ben a kontúrokat + felfüggesztő furatot.
           const blocks = [];
@@ -1405,7 +1603,7 @@ async function scanCurrentFolder() {
 
             const cx = (flake.minX + flake.maxX) / 2;
             const cy = (flake.minY + flake.maxY) / 2;
-            const pHole = PC.paramsFromCode(flake.code);
+            const pHole = PehelyCore.paramsFromCode(flake.code);
 
             blocks.push({
               blockName,
@@ -1428,8 +1626,8 @@ async function scanCurrentFolder() {
               let maxR = 0;
               for (const c of f.contours) {
                 if (!c.isOuter) continue;
-                const pts = c.points.slice(0, c.points.length - 1);
-                for (const [x, y] of pts) {
+                const points = c.points.slice(0, c.points.length - 1);
+                for (const [x, y] of points) {
                   const d = Math.hypot(x - cx, y - cy);
                   if (d > maxR) maxR = d;
                 }
@@ -1586,7 +1784,7 @@ async function scanCurrentFolder() {
               const bboxH = flake.height + 2 * pad;
 
               if (bboxW > sheetW || bboxH > sheetH) {
-                console.warn(`A(z) ${flake.code} hópehely (bbox ${bboxW.toFixed(2)}×${bboxH.toFixed(2)} mm) nagyobb, mint a kirakási terület (${sheetW}×${sheetH} mm). Kilóghat a keretből.`);
+                dbgWarn(`A(z) ${flake.code} hópehely (bbox ${bboxW.toFixed(2)}×${bboxH.toFixed(2)} mm) nagyobb, mint a kirakási terület (${sheetW}×${sheetH} mm). Kilóghat a keretből.`);
               }
 
               for (let i = 0; i < flake.count; i++) {
@@ -1670,7 +1868,7 @@ async function scanCurrentFolder() {
             rotationDeg: 0
           }));
 
-          dxfString = PC.buildCollectionDxf({ blocks, frames, inserts });
+          dxfString = PehelyCore.buildCollectionDxf({ blocks, frames, inserts });
 
           setSaveProgress(instanceDone, progressMax, 'DXF összeállítva.');
           await saveUiTick();
@@ -1679,19 +1877,19 @@ async function scanCurrentFolder() {
         const algoBaseName = `${algo}_${baseName}`;
 
         if (dxfString) {
-          await saveWithPickerOrDownload(algoBaseName + '.dxf', 'application/dxf', dxfString);
+          await PehelyCore.saveFileWithPickerOrDownload(saveManager, algoBaseName + '.dxf', 'application/dxf', dxfString);
           setSaveProgress(instanceDone, progressMax, 'DXF mentve.');
           await saveUiTick();
         }
     }
 
 const jsonData = {
-      version: ('HAVAZO_' + ((PC && PC.VERSION) ? PC.VERSION.toUpperCase() : 'V62')),
+      version: ('HAVAZO_' + ((PehelyCore && PehelyCore.ecosystemVersion) ? PehelyCore.ecosystemVersion.toUpperCase() : 'V62')),
       generatedAt: now.toISOString(),
       items: codesWithCounts
     };
     const jsonText = JSON.stringify(jsonData, null, 2);
-    await saveWithPickerOrDownload(baseName + '.json', 'application/json', jsonText);
+    await PehelyCore.saveFileWithPickerOrDownload(saveManager, baseName + '.json', 'application/json', jsonText);
     setSaveProgress(instanceDone, progressMax, 'JSON mentve.');
     await saveUiTick();
 
@@ -1703,48 +1901,48 @@ const jsonData = {
 
   // ====== TESZT: algoritmusok összehasonlítása és eltérések DXF-be ======
   function _roundSig(v) { return Math.round(v * 1000) / 1000; } // 0.001 mm
-  function _minPointIndices(pts) {
-    let minX = pts[0][0], minY = pts[0][1];
-    for (let i = 1; i < pts.length; i++) {
-      const x = pts[i][0], y = pts[i][1];
+  function _minPointIndices(points) {
+    let minX = points[0][0], minY = points[0][1];
+    for (let i = 1; i < points.length; i++) {
+      const x = points[i][0], y = points[i][1];
       if (x < minX || (x === minX && y < minY)) { minX = x; minY = y; }
     }
     const idxs = [];
-    for (let i = 0; i < pts.length; i++) {
-      if (pts[i][0] === minX && pts[i][1] === minY) idxs.push(i);
+    for (let i = 0; i < points.length; i++) {
+      if (points[i][0] === minX && points[i][1] === minY) idxs.push(i);
     }
     return idxs;
   }
-  function _rotateToIndex(pts, idx) {
-    if (idx <= 0) return pts;
-    return pts.slice(idx).concat(pts.slice(0, idx));
+  function _rotateToIndex(points, idx) {
+    if (idx <= 0) return points;
+    return points.slice(idx).concat(points.slice(0, idx));
   }
-  function _ptsToString(pts) {
-    // pts: [[x,y],...], already rounded
+  function _pointsToString(points) {
+    // points: [[x,y],...], already rounded
     let s = '';
-    for (let i = 0; i < pts.length; i++) {
-      const p = pts[i];
+    for (let i = 0; i < points.length; i++) {
+      const p = points[i];
       s += p[0] + ',' + p[1] + ';';
     }
     return s;
   }
-  function _canonicalLoop(pointsUnique) {
+  function _canonicalPolygon(pointsUnique) {
     if (!pointsUnique || pointsUnique.length < 3) return '';
-    const pts = pointsUnique.map(([x, y]) => [_roundSig(x), _roundSig(y)]);
-    const idxsF = _minPointIndices(pts);
+    const points = pointsUnique.map(([x, y]) => [_roundSig(x), _roundSig(y)]);
+    const idxsF = _minPointIndices(points);
     let best = null;
 
     for (const idx of idxsF) {
-      const rot = _rotateToIndex(pts, idx);
-      const s = _ptsToString(rot);
+      const rot = _rotateToIndex(points, idx);
+      const s = _pointsToString(rot);
       if (best === null || s < best) best = s;
     }
     // reversed orientation
-    const rev = pts.slice().reverse();
+    const rev = points.slice().reverse();
     const idxsR = _minPointIndices(rev);
     for (const idx of idxsR) {
       const rot = _rotateToIndex(rev, idx);
-      const s = _ptsToString(rot);
+      const s = _pointsToString(rot);
       if (best === null || s < best) best = s;
     }
     return best || '';
@@ -1755,9 +1953,9 @@ const jsonData = {
     for (const c of contours) {
       if (!c || !c.points || c.points.length < 4) continue;
       const unique = c.points.slice(0, c.points.length - 1);
-      const loopSig = _canonicalLoop(unique);
-      if (!loopSig) continue;
-      parts.push((c.isOuter ? 'O:' : 'I:') + loopSig);
+      const polygonSig = _canonicalPolygon(unique);
+      if (!polygonSig) continue;
+      parts.push((c.isOuter ? 'O:' : 'I:') + polygonSig);
     }
     parts.sort();
     return parts.join('|') || 'NULL';
@@ -1821,7 +2019,21 @@ const jsonData = {
               if (y > maxY) maxY = y;
             }
           }
-          perAlgo[algo] = { contours, minX, minY, maxX, maxY, width: (maxX - minX), height: (maxY - minY) };
+          const komplex = PehelyCore.computeKomplexFromContoursWithFlags(contours);
+          const tNet = (komplex && Number.isFinite(komplex.KT) && Number.isFinite(komplex.BT))
+            ? (Number(komplex.KT) - Number(komplex.BT))
+            : null;
+          const badT = (tNet !== null && Number.isFinite(tNet) && tNet < 0);
+          if (badT) {
+            const cx = (minX + maxX) / 2;
+            const cy = (minY + maxY) / 2;
+            const half = Number(PehelyCore.TRUNK_LENGTH) || 50;
+            minX = cx - half;
+            maxX = cx + half;
+            minY = cy - half;
+            maxY = cy + half;
+          }
+          perAlgo[algo] = { contours, minX, minY, maxX, maxY, width: (maxX - minX), height: (maxY - minY), badT };
         } else {
           perAlgo[algo] = { contours: null, minX: 0, minY: 0, maxX: 0, maxY: 0, width: 0, height: 0 };
         }
@@ -1883,10 +2095,10 @@ const jsonData = {
         // Ha nincs kontúr, hagyjuk üresen az oszlopot (a hely attól még megmarad)
         if (!v || !v.contours || !v.contours.length) continue;
 
-        const blockName = algo + '_' + PC.blockNameFromCode(row.code);
+        const blockName = algo + '_' + PehelyCore.blockNameFromCode(row.code);
         const cx = (v.minX + v.maxX) / 2;
         const cy = (v.minY + v.maxY) / 2;
-        const pHole = PC.paramsFromCode(row.code);
+        const pHole = PehelyCore.paramsFromCode(row.code);
 
         if (!blocksByName.has(blockName)) {
           blocksByName.set(blockName, {
@@ -1905,7 +2117,7 @@ const jsonData = {
       rowTop += rowH + clearance;
     }
 
-    const dxfString = PC.buildCollectionDxf({
+    const dxfString = PehelyCore.buildCollectionDxf({
       blocks: Array.from(blocksByName.values()),
       frames: [],
       inserts
@@ -1917,19 +2129,18 @@ const jsonData = {
     setSaveProgress(totalChecks, totalChecks, `TESZT: mentés… (sor: ${rows.length}, eltérés: ${diffRows})`);
     await saveUiTick();
 
-    await saveWithPickerOrDownload(name, 'application/dxf', dxfString);
+    await PehelyCore.saveFileWithPickerOrDownload(saveManager, name, 'application/dxf', dxfString);
 
     if (saveProgressArea) saveProgressArea.style.display = 'none';
   }
-
 
   // ====== Init ======
   window.addEventListener('load', () => {
     // Verzió (kívül-belül egységesen)
     const vEl = document.getElementById('appVersion');
-    const v = (PC && PC.VERSION) ? PC.VERSION : 'v82.9';
-    if (vEl) vEl.textContent = v;
-    document.title = 'Rodé Lajos - HAVAZO ' + v;
+    const ecosystemVersion = (PehelyCore && PehelyCore.ecosystemVersion) ? PehelyCore.ecosystemVersion : 'v?';
+    if (vEl) vEl.textContent = ecosystemVersion;
+    document.title = 'Rodé Lajos - HAVAZO ' + ecosystemVersion;
 
     // DXF algoritmus választó + leírás
     const dxfAlgoSelect = document.getElementById('dxfAlgoSelect');
@@ -1987,3 +2198,7 @@ const jsonData = {
 </script>
 </body>
 </html>
+
+
+
+

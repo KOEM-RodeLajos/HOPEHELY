@@ -19,10 +19,112 @@
     th, td { border-bottom: 1px solid #eee; padding: 8px 10px; vertical-align: top; }
     th { text-align: left; position: sticky; top: 0; backdrop-filter: blur(6px); background: rgba(245,245,245,.85); z-index: 1; }
     td.code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; word-break: break-all; }
-    img.thumb { width: 78px; height: 78px; object-fit: cover; border-radius: 8px; border: 1px solid #ddd; background:#fff; }
+    td.meta { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; word-break: break-all; }
+    td.meta .line { line-height: 1.2; margin: 0; }
+    td.meta .inferred { color: #06c; }
+    th.fname, td.fname {
+      width: 170px;
+      max-width: 170px;
+      white-space: normal;
+      word-break: break-word;
+      overflow-wrap: anywhere;
+    }
+    img.thumb { width: 78px; height: 78px; object-fit: cover; border-radius: 8px; border: 1px solid #ddd; background:#fff; cursor: zoom-in; }
     .ok { color:#0a6; }
     .bad { color:#b00; }
     .muted { color:#777; }
+
+    /* Mindig látható rendező panel (jobb felső sarokban) */
+    .floatingPanel {
+      position: fixed;
+      top: 12px;
+      right: 12px;
+      z-index: 50;
+      background: rgba(255,255,255,.92);
+      border: 1px solid #ddd;
+      border-radius: 12px;
+      padding: 10px 12px;
+      box-shadow: 0 6px 24px rgba(0,0,0,.08);
+      backdrop-filter: blur(8px);
+    }
+    .floatingPanel select {
+      min-width: 220px;
+      padding: 6px 8px;
+      border-radius: 10px;
+      border: 1px solid #ccc;
+      background: #fff;
+    }
+    .floatingPanel input[type="text"] {
+      width: 100%;
+      padding: 6px 8px;
+      border-radius: 10px;
+      border: 1px solid #ccc;
+      background: #fff;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
+      box-sizing: border-box;
+    }
+    .floatingPanel .row2 {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin-top: 6px;
+    }
+    .badCell { color:#b00; font-weight: 600; }
+
+    
+    @media (max-width: 640px) {
+      .floatingPanel { left: 12px; right: 12px; }
+      .floatingPanel select { width: 100%; min-width: 0; }
+    }
+
+    /* Nagy előnézet overlay (HAVAZÓ-szerű) */
+    #previewOverlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.7);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 2000;
+    }
+    #previewOverlay.active { display: flex; }
+    .preview-content {
+      background: #001633;
+      color: #ffffff;
+      border-radius: 10px;
+      padding: 1rem 1.2rem 1.2rem;
+      max-width: 92vw;
+      max-height: 92vh;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.6rem;
+    }
+    .preview-image-wrapper {
+      max-width: 86vw;
+      max-height: 80vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #previewImage {
+      max-width: 100%;
+      max-height: 100%;
+      border-radius: 8px;
+    }
+    #previewCloseBtn {
+      position: absolute;
+      top: 0.2rem;
+      right: 0.55rem;
+      background: transparent;
+      border: none;
+      color: #ffffff;
+      font-size: 1.3rem;
+      cursor: pointer;
+    }
   </style>
   <script src="./pehely-core.js"></script>
 </head>
@@ -55,35 +157,80 @@
 
   <div class="status" id="status">Nincs betöltött mappa.</div>
 
+  <div id="sortPanel" class="floatingPanel" aria-label="Rendezés">
+    <div style="font-weight:600; margin-bottom:6px;">Rendezés</div>
+    <select id="sortSelect">
+      <option value="orig">Eredeti sorrend</option>
+      <option value="name">Fájlnév</option>
+      <option value="ver">Verzió</option>
+      <option value="problem">Problémás elöl</option>
+      <option value="expr">Képlet</option>
+      <option value="KM">KM (Külső mennyiség)</option>
+      <option value="BM">BM (Belső mennyiség)</option>
+      <option value="KP">KP (Külső pontok)</option>
+      <option value="BP">BP (Belső pontok)</option>
+      <option value="KH">KH (Külső hossz)</option>
+      <option value="BH">BH (Belső hossz)</option>
+      <option value="KT">KT (Külső terület)</option>
+      <option value="BT">BT (Belső terület)</option>
+      <option value="KF">KF (Külső FOK)</option>
+      <option value="BF">BF (Belső FOK)</option>
+    </select>
+    <div style="margin-top:8px; max-width:260px;">
+      <div class="muted" style="font-size:12px; margin-bottom:4px;">Képlet (pl. (KT-BT)/BP)</div>
+      <input id="exprInput" type="text" placeholder="(KT-BT)/BP" autocomplete="off" spellcheck="false">
+      <div class="row2">
+        <select id="exprDir" aria-label="Rendezés iránya">
+          <option value="asc">növekvő</option>
+          <option value="desc">csökkenő</option>
+        </select>
+      </div>
+      <div id="exprMsg" class="muted" style="font-size:12px; margin-top:6px;"></div>
+    </div>
+  </div>
+
   <table>
     <thead>
       <tr>
         <th style="width:92px">Kép</th>
-        <th>Fájlnév</th>
-        <th style="width:80px">Verzió</th>
-        <th style=\"width:48px\">KM</th>
-        <th style=\"width:48px\">BM</th>
-        <th style=\"width:48px\">KP</th>
-        <th style=\"width:48px\">BP</th>
-        <th style=\"width:68px\">KH</th>
-        <th style=\"width:68px\">BH</th>
-        <th style=\"width:86px\">KT</th>
-        <th style=\"width:86px\">BT</th>
-        <th style=\"width:68px\">KF</th>
-        <th style=\"width:68px\">BF</th>
-        <th>PEHELY-kód</th>
-        <th>Kikövetkeztethető kód</th>
+        <th class="fname">Fájlnév</th>
+        <th style="width:260px">Kód</th>
+        <th style="width:48px">KM</th>
+        <th style="width:48px">BM</th>
+        <th style="width:48px">KP</th>
+        <th style="width:48px">BP</th>
+        <th style="width:68px">KH</th>
+        <th style="width:68px">BH</th>
+        <th style="width:86px">KT</th>
+        <th style="width:86px">BT</th>
+        <th style="width:68px">KF</th>
+        <th style="width:68px">BF</th>
+        <th style="width:86px">Képlet</th>
         <th style="width:220px">Állapot</th>
       </tr>
     </thead>
     <tbody id="tbody"></tbody>
   </table>
 
+  <!-- Nagy előnézet overlay -->
+  <div id="previewOverlay">
+    <div id="previewContent" class="preview-content">
+      <button id="previewCloseBtn" title="Bezár">×</button>
+      <div class="preview-image-wrapper">
+        <img id="previewImage" alt="">
+      </div>
+    </div>
+  </div>
+
 <script>
 (() => {
   'use strict';
 
-  const PC = window.PehelyCore;
+  // Debug log (alapból csendes). Állítsd a konzolban: window.PEHELY_DEBUG = true
+  const DEBUG = !!window.PEHELY_DEBUG;
+  const dbgWarn = (...args) => { if (DEBUG && window.console && window.console.warn) window.console.warn(...args); };
+
+  const PehelyCore = window.PehelyCore;
   const tbody = document.getElementById('tbody');
   const statusEl = document.getElementById('status');
   const pickDirBtn = document.getElementById('pickDirBtn');
@@ -93,22 +240,285 @@
   const onlyProblemsCheckbox = document.getElementById('onlyProblemsCheckbox');
   const renameFilesCheckbox = document.getElementById('renameFilesCheckbox');
   const envPill = document.getElementById('envPill');
+  const sortSelect = document.getElementById('sortSelect');
+  const exprInput = document.getElementById('exprInput');
+  const exprDirSelect = document.getElementById('exprDir');
+  const exprMsg = document.getElementById('exprMsg');
 
-  if (!PC) {
+  // Overlay (HAVAZÓ-szerű előnézet)
+  const previewOverlay = document.getElementById('previewOverlay');
+  const previewImage = document.getElementById('previewImage');
+  const previewCloseBtn = document.getElementById('previewCloseBtn');
+  const previewContent = document.getElementById('previewContent');
+
+  if (!PehelyCore) {
     alert('Nem található a pehely-core.js (PehelyCore). Tedd a pehely-check.html mellé!');
     return;
   }
 
-  const CURRENT_TAG = (PC.CODE_FORMAT_TAG || 'V03');
-  envPill.textContent = `core: ${(PC.VERSION || '').toUpperCase()} | kód: ${CURRENT_TAG}`;
+  const currentPehelyCodeVersion = (PehelyCore.pehelyCodeVersion || 'V03');
+  envPill.textContent = `core: ${(PehelyCore.ecosystemVersion || '').toUpperCase()} | kód: ${currentPehelyCodeVersion}`;
 
   let usingFSAccess = false;
   let dirHandle = null;
   let items = [];
+  let nextOriginalIndex = 0;
+  let sortMode = 'orig';
+  let exprText = '';
+  let exprRpn = null;
+  let exprParseError = null;
+  let exprDir = 'asc';
 
   function escHtml(s) {
     s = (s === undefined || s === null) ? "" : String(s);
     return s.replace(/[&<>"']/g, (ch) => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","\x27":"&#39;"}[ch]));
+  }
+
+  // --- Képlet értékelő (eval nélkül) ---
+  function tokenizeExpr(src) {
+    const s = String(src || '');
+    const tokens = [];
+    let i = 0;
+    while (i < s.length) {
+      const ch = s[i];
+      if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r') { i++; continue; }
+
+      // number: 12, 12.3, .5
+      if ((ch >= '0' && ch <= '9') || ch === '.') {
+        const m = s.slice(i).match(/^(?:\d+(?:\.\d*)?|\.\d+)/);
+        if (!m) throw new Error(`Hibás szám a(z) ${i+1}. pozíciónál`);
+        const numText = m[0];
+        const val = Number(numText);
+        if (!Number.isFinite(val)) throw new Error(`Hibás szám: ${numText}`);
+        tokens.push({ t: 'num', v: val });
+        i += numText.length;
+        continue;
+      }
+
+      // identifier: KM, KT, P, ...
+      if ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z')) {
+        const m = s.slice(i).match(/^([A-Za-z][A-Za-z0-9]*)/);
+        const id = (m && m[1]) ? m[1].toUpperCase() : null;
+        if (!id) throw new Error(`Hibás változónév a(z) ${i+1}. pozíciónál`);
+        tokens.push({ t: 'id', v: id });
+        i += id.length;
+        continue;
+      }
+
+      // operators / parens
+      if (ch === '+' || ch === '-' || ch === '*' || ch === '/' || ch === '(' || ch === ')') {
+        tokens.push({ t: ch });
+        i++;
+        continue;
+      }
+
+      throw new Error(`Ismeretlen karakter: '${ch}' (pozíció: ${i+1})`);
+    }
+    return tokens;
+  }
+
+  function parseExprToRpn(src) {
+    const tokens = tokenizeExpr(src);
+    const out = [];
+    const ops = [];
+
+    const prec = { 'u-': 3, '*': 2, '/': 2, '+': 1, '-': 1 };
+    const assoc = { 'u-': 'right', '*': 'left', '/': 'left', '+': 'left', '-': 'left' };
+
+    let prevType = 'start'; // start | value | op | lparen
+
+    for (const tok of tokens) {
+      if (tok.t === 'num' || tok.t === 'id') {
+        out.push(tok);
+        prevType = 'value';
+        continue;
+      }
+
+      if (tok.t === '(') {
+        ops.push({ t: '(' });
+        prevType = 'lparen';
+        continue;
+      }
+
+      if (tok.t === ')') {
+        let found = false;
+        while (ops.length) {
+          const top = ops.pop();
+          if (top.t === '(') { found = true; break; }
+          out.push(top);
+        }
+        if (!found) throw new Error('Zárójel hiba: hiányzó (');
+        prevType = 'value';
+        continue;
+      }
+
+      // operator
+      if (tok.t === '+' || tok.t === '-' || tok.t === '*' || tok.t === '/') {
+        let op = tok.t;
+        if (op === '-' && (prevType === 'start' || prevType === 'op' || prevType === 'lparen')) {
+          op = 'u-';
+        }
+        if (prevType === 'start' || prevType === 'op' || prevType === 'lparen') {
+          if (op !== 'u-') throw new Error('Hibás operátorhelyzet.');
+        }
+
+        while (ops.length) {
+          const top = ops[ops.length - 1];
+          if (!prec[top.t]) break;
+          const p1 = prec[op];
+          const p2 = prec[top.t];
+          const isLeft = assoc[op] === 'left';
+          if ((isLeft && p1 <= p2) || (!isLeft && p1 < p2)) {
+            out.push(ops.pop());
+            continue;
+          }
+          break;
+        }
+        ops.push({ t: op });
+        prevType = 'op';
+        continue;
+      }
+    }
+
+    while (ops.length) {
+      const top = ops.pop();
+      if (top.t === '(') throw new Error('Zárójel hiba: hiányzó )');
+      out.push(top);
+    }
+    if (!out.length) throw new Error('Üres képlet.');
+    return out;
+  }
+
+  function evalExprRpn(rpn, vars) {
+    const st = [];
+    for (const tok of rpn) {
+      if (tok.t === 'num') { st.push(tok.v); continue; }
+      if (tok.t === 'id') {
+        if (!(tok.v in vars)) throw new Error(`Ismeretlen változó: ${tok.v}`);
+        const v = Number(vars[tok.v]);
+        if (!Number.isFinite(v)) throw new Error(`Nem numerikus érték: ${tok.v}`);
+        st.push(v);
+        continue;
+      }
+      if (tok.t === 'u-') {
+        if (st.length < 1) throw new Error('Hiányzó operandus.');
+        st.push(-st.pop());
+        continue;
+      }
+      if (tok.t === '+' || tok.t === '-' || tok.t === '*' || tok.t === '/') {
+        if (st.length < 2) throw new Error('Hiányzó operandus.');
+        const b = st.pop();
+        const a = st.pop();
+        if (tok.t === '/' && b === 0) throw new Error('Osztás nullával.');
+        let r = 0;
+        if (tok.t === '+') r = a + b;
+        else if (tok.t === '-') r = a - b;
+        else if (tok.t === '*') r = a * b;
+        else r = a / b;
+        if (!Number.isFinite(r)) throw new Error('Nem számolható (NaN/∞).');
+        st.push(r);
+        continue;
+      }
+      throw new Error('Ismeretlen token.');
+    }
+    if (st.length !== 1) throw new Error('Hibás képlet (stack).');
+    return st[0];
+  }
+
+  function makeExprVarsFromItem(it) {
+    const k = it && it.komplex ? it.komplex : null;
+    if (!k) return null;
+    const KM = Number(k.KM ?? 0);
+    const BM = Number(k.BM ?? 0);
+    const KP = Number(k.KP ?? 0);
+    const BP = Number(k.BP ?? 0);
+    const KH = Number(k.KH ?? 0);
+    const BH = Number(k.BH ?? 0);
+    const KT = Number(k.KT ?? 0);
+    const BT = Number(k.BT ?? 0);
+    const KF = Number(k.KF ?? 0);
+    const BF = Number(k.BF ?? 0);
+
+    const P = KP + BP;
+    const H = KH + BH;
+    const T = KT - BT;
+    const F = (P !== 0) ? ((KF * KP + BF * BP) / P) : NaN;
+
+    return { KM, BM, KP, BP, KH, BH, KT, BT, KF, BF, P, H, T, F };
+  }
+
+  function formatExprValue(v) {
+    if (!Number.isFinite(v)) return '';
+    const r = Math.round(v * 1000) / 1000;
+    let s = String(r);
+    // szebb: 1.000 -> 1, 1.230 -> 1.23
+    s = s.replace(/\.0+$/, '').replace(/(\.\d*[1-9])0+$/, '$1');
+    return s;
+  }
+
+  function recomputeExprValues() {
+    const has = !!(exprText && exprText.trim());
+    let badCount = 0;
+    for (const it of items) {
+      it.exprValue = null;
+      it.exprErr = null;
+      if (!has || !exprRpn) {
+        it.exprText = '';
+      } else {
+        try {
+          const vars = makeExprVarsFromItem(it);
+          if (!vars) throw new Error('Nincs KOMPLEX adat.');
+          const v = evalExprRpn(exprRpn, vars);
+          it.exprValue = v;
+          it.exprText = formatExprValue(v);
+        } catch (e) {
+          it.exprValue = null;
+          it.exprErr = String(e && e.message ? e.message : e);
+          it.exprText = '';
+          badCount++;
+        }
+      }
+      if (it._cells && it._cells.tdExpr) {
+        it._cells.tdExpr.textContent = it.exprText || (it.exprErr ? '!' : '');
+        it._cells.tdExpr.classList.toggle('badCell', !!it.exprErr);
+        it._cells.tdExpr.title = it.exprErr ? it.exprErr : '';
+      }
+    }
+    return badCount;
+  }
+
+  function setExprMessage(kind, msg) {
+    exprMsg.textContent = msg || '';
+    exprMsg.className = (kind === 'bad') ? 'bad' : 'muted';
+  }
+
+  function updateExprFromUiAndApply({ alsoSort } = {}) {
+    exprText = String(exprInput.value || '').trim();
+    exprDir = String(exprDirSelect.value || 'asc');
+
+    if (!exprText) {
+      exprRpn = null;
+      exprParseError = null;
+      setExprMessage('muted', '');
+      recomputeExprValues();
+      if (alsoSort && sortMode === 'expr') applySort();
+      return;
+    }
+
+    try {
+      exprRpn = parseExprToRpn(exprText);
+      exprParseError = null;
+      const badCount = recomputeExprValues();
+      if (badCount > 0) setExprMessage('muted', `OK, de ${badCount} sorban nem számolható.`);
+      else setExprMessage('muted', 'OK.');
+      if (alsoSort && sortMode === 'expr') applySort();
+    } catch (e) {
+      exprRpn = null;
+      exprParseError = String(e && e.message ? e.message : e);
+      recomputeExprValues();
+      setExprMessage('bad', `Hibás képlet: ${exprParseError}`);
+      if (alsoSort && sortMode === 'expr') applySort();
+    }
   }
 
 
@@ -121,8 +531,13 @@
   function setStatus(msg) { statusEl.textContent = msg; }
 
   function versionTagFromCode(code) {
-    const v = PC.getCodeFormatVersion(code);
+    const v = PehelyCore.getCodeFormatVersion(code);
     return 'V' + String(v).padStart(2, '0');
+  }
+
+  function parseKomplexTagVersion(tag) {
+    const m = String(tag || '').match(/V(\d+)/i);
+    return m ? parseInt(m[1], 10) : 0;
   }
 
   function inferCodeFromFilename(name) {
@@ -150,8 +565,69 @@
       if (it && it.imgURL) URL.revokeObjectURL(it.imgURL);
     }
     items = [];
+    nextOriginalIndex = 0;
     tbody.innerHTML = '';
     updateFixButton();
+  }
+
+  function applySort() {
+    if (!items.length) return;
+
+    const key = sortMode || 'orig';
+
+    items.sort((a, b) => {
+      const ai = a.originalIndex ?? 0;
+      const bi = b.originalIndex ?? 0;
+
+      let av = null, bv = null;
+      let cmp = 0;
+
+      if (key === 'orig') {
+        cmp = ai - bi;
+      } else if (key === 'name') {
+        av = String(a.fileName || '').toLowerCase();
+        bv = String(b.fileName || '').toLowerCase();
+        cmp = av.localeCompare(bv, 'hu');
+      } else if (key === 'ver') {
+        av = String(a.versionTag || '');
+        bv = String(b.versionTag || '');
+        cmp = av.localeCompare(bv, 'hu');
+      } else if (key === 'problem') {
+        av = a.isProblem ? 0 : 1;
+        bv = b.isProblem ? 0 : 1;
+        cmp = av - bv;
+      } else if (key === 'expr') {
+        // T<0 pelyhek: fals eredmények miatt mindig a lista végére kerülnek.
+        const aBad = !!a.badT;
+        const bBad = !!b.badT;
+        if (aBad !== bBad) return aBad ? 1 : -1;
+        const an = Number.isFinite(a.exprValue) ? a.exprValue : null;
+        const bn = Number.isFinite(b.exprValue) ? b.exprValue : null;
+        if (an === null && bn === null) cmp = 0;
+        else if (an === null) cmp = 1;
+        else if (bn === null) cmp = -1;
+        else cmp = an - bn;
+        if (exprDir === 'desc') cmp = -cmp;
+      } else {
+        const an = (a.komplex && Number.isFinite(a.komplex[key])) ? a.komplex[key] : null;
+        const bn = (b.komplex && Number.isFinite(b.komplex[key])) ? b.komplex[key] : null;
+        if (an === null && bn === null) cmp = 0;
+        else if (an === null) cmp = 1;
+        else if (bn === null) cmp = -1;
+        else cmp = an - bn;
+      }
+
+      if (cmp === 0) cmp = ai - bi;
+      return cmp;
+    });
+
+    const frag = document.createDocumentFragment();
+    for (const it of items) {
+      if (it && it._tr) frag.appendChild(it._tr);
+    }
+    tbody.appendChild(frag);
+
+    applyProblemFilter();
   }
 
   function updateFixButton() {
@@ -171,7 +647,7 @@
     if (wantRename) reasons.push('A fájlnév nem az aktuális PEHELY-kódot tükrözi.');
 
     it.isProblem = (reasons.length > 0);
-    it.canFix = usingFSAccess && !!it.handle && !!it.targetCode && it.isProblem && (!!it.needsCommentFix || !!it.needsKomplexFix || wantRename);
+    it.canFix = usingFSAccess && !!it.handle && !!it.targetCode && it.isProblem && (!!it.needsCommentFix || !!it.needsKomplexFix || !!it.needsYellowFix || wantRename);
 
     if (!it.isProblem) {
       if (!!it.nameMismatch && !renameOn) {
@@ -185,7 +661,17 @@
     }
 
     if (it._cells) {
-      it._cells.tdVer.textContent = it.versionTag || '';
+      const meta = it._cells.tdMeta;
+      if (meta) {
+        const v = escHtml(it.versionTag || '');
+        const c1 = escHtml(it.codeFound || '');
+        const c2 = escHtml(it.codeInferred || '');
+        meta.innerHTML = `
+          <div class="line muted">${v}</div>
+          <div class="line">${c1}</div>
+          <div class="line inferred">${c2}</div>
+        `;
+      }
       it._cells.tdKM.textContent = it.kmText || '';
       it._cells.tdBM.textContent = it.bmText || '';
       it._cells.tdKP.textContent = it.kpText || '';
@@ -196,17 +682,34 @@
       it._cells.tdBT.textContent = it.btText || '';
       it._cells.tdKF.textContent = it.kfText || '';
       it._cells.tdBF.textContent = it.bfText || '';
-      it._cells.tdCode.textContent = it.codeFound || '';
-      it._cells.tdInf.textContent = it.codeInferred || '';
       it._cells.tdSt.innerHTML = it.statusHtml;
       it._cells.tdName.textContent = it.fileName || '';
     }
   }
 
+  function openPreviewForItem(it) {
+    if (!it || !it.imgURL) return;
+    previewImage.src = it.imgURL;
+    previewOverlay.classList.add('active');
+  }
+  function closePreview() {
+    previewOverlay.classList.remove('active');
+  }
+  previewCloseBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closePreview();
+  });
+  previewOverlay.addEventListener('click', () => closePreview());
+  previewContent.addEventListener('click', (e) => e.stopPropagation());
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closePreview();
+  });
+
   function refreshAllRows() {
     for (const it of items) refreshItemRow(it);
     updateFixButton();
-    applyProblemFilter();
+    recomputeExprValues();
+    applySort();
   }
 
   function applyProblemFilter() {
@@ -219,6 +722,23 @@
 
   onlyProblemsCheckbox.addEventListener('change', applyProblemFilter);
 
+  exprInput.addEventListener('input', () => {
+    // Ha képletet írunk, automatikusan képlet szerinti rendezésre váltunk.
+    sortMode = 'expr';
+    sortSelect.value = 'expr';
+    updateExprFromUiAndApply({ alsoSort: true });
+  });
+
+  exprDirSelect.addEventListener('change', () => {
+    updateExprFromUiAndApply({ alsoSort: true });
+  });
+
+  sortSelect.addEventListener('change', () => {
+    sortMode = String(sortSelect.value || 'orig');
+    if (sortMode === 'expr') updateExprFromUiAndApply({ alsoSort: true });
+    else applySort();
+  });
+
   function addRow(it) {
     const tr = document.createElement('tr');
 
@@ -227,14 +747,20 @@
     img.className = 'thumb';
     img.src = it.imgURL;
     img.alt = '';
+    img.addEventListener('click', () => openPreviewForItem(it));
     tdImg.appendChild(img);
 
     const tdName = document.createElement('td');
+    tdName.className = 'fname';
     tdName.textContent = it.fileName;
 
-    const tdVer = document.createElement('td');
-    tdVer.className = 'code';
-    tdVer.textContent = it.versionTag || '';
+    const tdMeta = document.createElement('td');
+    tdMeta.className = 'meta';
+    tdMeta.innerHTML = `
+      <div class="line muted">${escHtml(it.versionTag || '')}</div>
+      <div class="line">${escHtml(it.codeFound || '')}</div>
+      <div class="line inferred">${escHtml(it.codeInferred || '')}</div>
+    `;
 
     const tdKM = document.createElement('td');
     tdKM.className = 'code';
@@ -276,20 +802,16 @@
     tdBF.className = 'code';
     tdBF.textContent = it.bfText || '';
 
-    const tdCode = document.createElement('td');
-    tdCode.className = 'code';
-    tdCode.textContent = it.codeFound || '';
-
-    const tdInf = document.createElement('td');
-    tdInf.className = 'code';
-    tdInf.textContent = it.codeInferred || '';
+    const tdExpr = document.createElement('td');
+    tdExpr.className = 'code';
+    tdExpr.textContent = it.exprText || '';
 
     const tdSt = document.createElement('td');
     tdSt.innerHTML = it.statusHtml;
 
     tr.appendChild(tdImg);
     tr.appendChild(tdName);
-    tr.appendChild(tdVer);
+    tr.appendChild(tdMeta);
     tr.appendChild(tdKM);
     tr.appendChild(tdBM);
     tr.appendChild(tdKP);
@@ -300,17 +822,17 @@
     tr.appendChild(tdBT);
     tr.appendChild(tdKF);
     tr.appendChild(tdBF);
-    tr.appendChild(tdCode);
-    tr.appendChild(tdInf);
+    tr.appendChild(tdExpr);
     tr.appendChild(tdSt);
 
     it._tr = tr;
-    it._cells = { tdName, tdVer, tdKM, tdBM, tdKP, tdBP, tdKH, tdBH, tdKT, tdBT, tdKF, tdBF, tdCode, tdInf, tdSt };
+    it._cells = { tdName, tdMeta, tdKM, tdBM, tdKP, tdBP, tdKH, tdBH, tdKT, tdBT, tdKF, tdBF, tdExpr, tdSt, img };
     tbody.appendChild(tr);
   }
 
   async function analyzeJpegFile(file, handleOrNull) {
     const it = {
+      originalIndex: nextOriginalIndex++,
       fileName: file.name,
       handle: handleOrNull,
       imgURL: URL.createObjectURL(file),
@@ -336,6 +858,9 @@
       btText: '',
       kfText: '',
       bfText: '',
+      exprValue: null,
+      exprErr: null,
+      exprText: '',
       isProblem: false,
       canFix: false,
       statusHtml: '<span class=\"muted\">…</span>',
@@ -344,7 +869,7 @@
 
     try {
       const ab = await file.arrayBuffer();
-      const codes = PC.listPehelyCodesFromJpegArrayBuffer(ab);
+      const codes = PehelyCore.listPehelyCodesFromJpegArrayBuffer(ab);
       it.codesInJpeg = codes;
       const raw = (codes && codes.length) ? codes[codes.length - 1] : null;
       it.codeFound = raw;
@@ -364,7 +889,7 @@
 
       if (raw) {
         try {
-          target = PC.upgradeCodeToCurrent(raw);
+          target = PehelyCore.upgradeCodeToCurrent(raw);
           const vTag = versionTagFromCode(raw);
           it.versionTag = vTag;
           if (raw !== target) {
@@ -378,7 +903,7 @@
 
       if (!target && inferred) {
         try {
-          target = PC.upgradeCodeToCurrent(inferred);
+          target = PehelyCore.upgradeCodeToCurrent(inferred);
         } catch (e) {
           // marad null
         }
@@ -394,30 +919,60 @@
       // KOMPLEX: külön JPG komment (KOMPLEX-...), rendezéshez / szűréshez.
       let komplexInJpeg = null;
       try {
-        komplexInJpeg = PC.parseKomplexFromJpegArrayBuffer(ab);
+        komplexInJpeg = PehelyCore.parseKomplexFromJpegArrayBuffer(ab);
       } catch (e) {
         komplexInJpeg = null;
       }
       it.komplexInJpeg = komplexInJpeg;
+      it.komplexTag = (komplexInJpeg && (komplexInJpeg._tag || komplexInJpeg.tag)) ? String(komplexInJpeg._tag || komplexInJpeg.tag) : null;
+      const komplexTagVersion = parseKomplexTagVersion(it.komplexTag);
+      const komplexTargetVersion = parseKomplexTagVersion(PehelyCore.komplexCodeVersion || 'V03');
+
+      // Hiany vagy regi verzio eseten (ha szamolhato) ujraszamoljuk.
+      const komplexNeedsFix = (!!target && (
+        !komplexInJpeg ||
+        !komplexTagVersion ||
+        (komplexTagVersion < komplexTargetVersion) ||
+        (komplexInJpeg && (Number(komplexInJpeg.KP || 0) === 0) && (Number(komplexInJpeg.BP || 0) === 0) && (Number(komplexInJpeg.KM || 0) + Number(komplexInJpeg.BM || 0) > 0))
+      ));
 
       let komplex = komplexInJpeg;
-      if (!komplex && target) {
+      if (komplexNeedsFix && target) {
         try {
-          komplex = PC.computeKomplexForCode(target, 'B');
+          komplex = PehelyCore.computeKomplexForCode(target, 'B');
         } catch (e) {
           komplex = null;
         }
       }
       it.komplex = komplex;
 
-      // Hiány esetén (ha számolható) írjuk majd vissza a fájlba.
-      const komplexNeedsFix = (!!target && !!komplex && (!komplexInJpeg || (komplexInJpeg && (Number(komplexInJpeg.KP || 0) === 0) && (Number(komplexInJpeg.BP || 0) === 0) && (Number(komplexInJpeg.KM || 0) + Number(komplexInJpeg.BM || 0) > 0))));
+      // T = KT - BT. Ha T < 0, az a jelenlegi konturkepzes szamara problemasnak tekintendo.
+      const tNet = (komplex && Number.isFinite(komplex.KT) && Number.isFinite(komplex.BT))
+        ? (Number(komplex.KT) - Number(komplex.BT))
+        : null;
+      it.tNet = tNet;
+      it.badT = (tNet !== null && Number.isFinite(tNet) && tNet < 0);
+
+      // KOMPLEX-V02-tol garantaljuk: ha T<0, a JPG sarga.
+      // Regi (V01 / hianyzo) KOMPLEX eseten a T<0 pelyheket sargitani kell.
+      it.needsYellowFix = (!!it.badT && komplexTagVersion < 2);
+
+      // Hiany / regi verzio / hianyos KP-BP eseten (ha szamolhato) irjuk majd vissza a fajlba.
       it.needsKomplexFix = komplexNeedsFix;
 
       if (!komplexInJpeg) {
         problemReasons.push('Nincs KOMPLEX adat a JPG-ben.');
       } else if (komplexNeedsFix) {
-        problemReasons.push('A KOMPLEX adat hiányos (KP/BP).');
+        problemReasons.push('A KOMPLEX adat hianyos (KP/BP).');
+      }
+      if (komplexInJpeg && komplexTagVersion > 0 && komplexTagVersion < komplexTargetVersion) {
+        problemReasons.push('Regi KOMPLEX verzio: ' + it.komplexTag + ' -> ' + PehelyCore.komplexCodeVersion + '.');
+      }
+      if (it.badT) {
+        problemReasons.push('T<0 (KT-BT): a jelenlegi kontúrképzés nem tudja kezelni.');
+        if (it.needsYellowFix) {
+          problemReasons.push('Sárgítás szükséges (KOMPLEX-V01).');
+        }
       }
 
       if (komplex) {
@@ -534,7 +1089,7 @@
       const handle = await window.showDirectoryPicker();
       await scanDirectoryHandle(handle);
     } catch (e) {
-      console.warn(e);
+      dbgWarn(e);
     }
   });
 
@@ -578,19 +1133,28 @@
         const ab = await file.arrayBuffer();
 
         const fixedCode = it.targetCode;
+        const didYellowFix = !!it.needsYellowFix;
 
-        // Mindig tisztítunk és egyetlen kánonikus kommentet írunk vissza.
-        // Mindig tisztítunk és egyetlen kánonikus PEHELY kommentet írunk vissza.
-        let outBlob = PC.replacePehelyCodeInJpegArrayBuffer(ab, fixedCode);
+        let outBlob = null;
 
-        // KOMPLEX: hiány esetén számoljuk ki és írjuk be.
-        if (it.needsKomplexFix) {
-          const komplex = PC.computeKomplexForCode(fixedCode, 'B');
-          if (!komplex) throw new Error('A KOMPLEX nem számolható ehhez a kódhoz.');
-          const ab2 = await PC.blobToArrayBuffer(outBlob);
-          outBlob = PC.replaceKomplexInJpegArrayBuffer(ab2, komplex);
-          it.komplexInJpeg = komplex;
-          it.komplex = komplex;
+        // T<0 esetén (régi KOMPLEX-V01 / hiányzó KOMPLEX): sárgítani kell.
+        // Ilyenkor a JPG-t újrageneráljuk, így a szín és a kommentek is kánonikusak lesznek.
+        if (it.needsYellowFix) {
+          outBlob = await PehelyCore.jpegCreateCodeBlob(fixedCode, 'blue');
+          if (!outBlob) throw new Error('A JPG újragenerálása nem sikerült.');
+        } else {
+          // Mindig tisztítunk és egyetlen kánonikus PEHELY kommentet írunk vissza.
+          outBlob = PehelyCore.jpegReplacePehelyCode(ab, fixedCode);
+
+          // KOMPLEX: hiány esetén számoljuk ki és írjuk be.
+          if (it.needsKomplexFix) {
+            const komplex = PehelyCore.computeKomplexForCode(fixedCode, 'B');
+            if (!komplex) throw new Error('A KOMPLEX nem számolható ehhez a kódhoz.');
+            const ab2 = await PehelyCore.blobToArrayBuffer(outBlob);
+            outBlob = PehelyCore.replaceKomplexInJpegArrayBuffer(ab2, komplex);
+            it.komplexInJpeg = komplex;
+            it.komplex = komplex;
+          }
         }
 
         const wantRename = renameOn && !!it.nameMismatch && !!it.desiredName;
@@ -618,17 +1182,17 @@
 
             const exFile = await existingHandle.getFile();
             const exAb = await exFile.arrayBuffer();
-            const exCodes = PC.listPehelyCodesFromJpegArrayBuffer(exAb);
+            const exCodes = PehelyCore.listPehelyCodesFromJpegArrayBuffer(exAb);
             const exRaw = (exCodes && exCodes.length) ? exCodes[exCodes.length - 1] : null;
 
             let exTarget = null;
             if (exRaw) {
-              try { exTarget = PC.upgradeCodeToCurrent(exRaw); } catch (e) { exTarget = null; }
+              try { exTarget = PehelyCore.upgradeCodeToCurrent(exRaw); } catch (e) { exTarget = null; }
             }
             if (!exTarget) {
               const exInf = inferCodeFromFilename(newName);
               if (exInf) {
-                try { exTarget = PC.upgradeCodeToCurrent(exInf); } catch (e) { exTarget = null; }
+                try { exTarget = PehelyCore.upgradeCodeToCurrent(exInf); } catch (e) { exTarget = null; }
               }
             }
 
@@ -636,21 +1200,30 @@
               throw new Error(`Névütközés: már létezik '${newName}'.`);
             }
 
-            // Tisztítsuk meg a célfájlt is, hogy ott is csak egyetlen kánonikus komment maradjon.
-            let exOutBlob = PC.replacePehelyCodeInJpegArrayBuffer(exAb, fixedCode);
+            // A célfájlt is tegyük kánonikussá.
+            // Sárgítás esetén írjuk rá a már újragenerált (sárga) JPG-t.
+            let exOutBlob = null;
+            if (it.needsYellowFix) {
+              exOutBlob = outBlob;
+            } else {
+              exOutBlob = PehelyCore.jpegReplacePehelyCode(exAb, fixedCode);
 
-            // KOMPLEX hiány esetén a célfájlba is írjuk be.
-            try {
-              const exKomplex = PC.parseKomplexFromJpegArrayBuffer(exAb);
-              if (!exKomplex) {
-                const komplex = PC.computeKomplexForCode(fixedCode, 'B');
-                if (komplex) {
-                  const exAb2 = await PC.blobToArrayBuffer(exOutBlob);
-                  exOutBlob = PC.replaceKomplexInJpegArrayBuffer(exAb2, komplex);
+              // KOMPLEX hiány / régi verzió esetén a célfájlba is írjuk be.
+              try {
+                const exKomplex = PehelyCore.parseKomplexFromJpegArrayBuffer(exAb);
+                const exTag = (exKomplex && (exKomplex._tag || exKomplex.tag)) ? String(exKomplex._tag || exKomplex.tag) : null;
+                const exTagVersion = parseKomplexTagVersion(exTag);
+                const targetVersion = parseKomplexTagVersion(PehelyCore.komplexCodeVersion || 'V03');
+                if (!exKomplex || !exTagVersion || exTagVersion < targetVersion) {
+                  const komplex = PehelyCore.computeKomplexForCode(fixedCode, 'B');
+                  if (komplex) {
+                    const exAb2 = await PehelyCore.blobToArrayBuffer(exOutBlob);
+                    exOutBlob = PehelyCore.replaceKomplexInJpegArrayBuffer(exAb2, komplex);
+                  }
                 }
+              } catch (e) {
+                // nem kritikus
               }
-            } catch (e) {
-              // nem kritikus
             }
 
             const wEx = await existingHandle.createWritable();
@@ -690,12 +1263,34 @@
 
         it.lastFixError = null;
 
+        // frissítsük a bélyegképet / előnézetet az új JPG-ből
+        try { if (it.imgURL) URL.revokeObjectURL(it.imgURL); } catch (e) {}
+        it.imgURL = URL.createObjectURL(outBlob);
+        if (it._cells && it._cells.img) it._cells.img.src = it.imgURL;
+
         // frissítsük a sort
         it.codeFound = fixedCode;
         it.versionTag = versionTagFromCode(fixedCode);
         it.codesInJpeg = [fixedCode];
         it.needsCommentFix = false;
         it.needsKomplexFix = false;
+        it.needsYellowFix = false;
+        if (didYellowFix) {
+          // A sárgított JPG már az aktuális KOMPLEX verziót kapta.
+          try {
+            const abNew = await PehelyCore.blobToArrayBuffer(outBlob);
+            const kNew = PehelyCore.parseKomplexFromJpegArrayBuffer(abNew);
+            if (kNew) {
+              it.komplexInJpeg = kNew;
+              it.komplex = kNew;
+              it.komplexTag = String(kNew._tag || kNew.tag || PehelyCore.komplexCodeVersion);
+            } else {
+              it.komplexTag = PehelyCore.komplexCodeVersion;
+            }
+          } catch (e) {
+            it.komplexTag = PehelyCore.komplexCodeVersion;
+          }
+        }
         if (it.komplex) {
           it.kpText = String(it.komplex.KP ?? it.komplex.KM ?? '');
           it.bpText = String(it.komplex.BP ?? it.komplex.BM ?? '');
@@ -707,6 +1302,9 @@
           it.bfText = Number.isFinite(it.komplex.BF) ? it.komplex.BF.toFixed(1) : '';
         }
         it.baseProblemReasons = [];
+        if (it.badT) {
+          it.baseProblemReasons.push('T<0 (KT-BT): a jelenlegi kontúrképzés nem tudja kezelni.');
+        }
         it.desiredName = desiredFilenameForCode(fixedCode);
         it.nameMismatch = (!!it.desiredName && it.fileName !== it.desiredName);
 

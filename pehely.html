@@ -108,17 +108,6 @@
       padding: 0.1rem 0.2rem;
     }
 
-    .profile-stack {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      gap: 0.2em;
-      min-width: 0;
-    }
-    .profile-stack > input[type="range"] {
-      flex: 0 0 auto; /* ne nyúljon meg függőlegesen */
-      width: 100%;
-    }
 
     .profile-grid {
       display: grid;
@@ -428,10 +417,14 @@
 
 <script>
   'use strict';
+
+  // Debug log (alapból csendes). Állítsd a konzolban: window.PEHELY_DEBUG = true
+  const DEBUG = !!window.PEHELY_DEBUG;
+  const dbgWarn = (...args) => { if (DEBUG && window.console && window.console.warn) window.console.warn(...args); };
   // ====== PehelyCore (közös algoritmus modul) ======
-  const PC = window.PehelyCore;
-  if (!PC) {
-    alert('Hiányzik a PehelyCore (pehely-core.js). Tedd a HTML-ek mellé ugyanabba a mappába. Ha csak verziószámos (pl. pehely-core_v80.js) van, nevezd át pehely-core.js-re.');
+  const PehelyCore = window.PehelyCore;
+  if (!PehelyCore) {
+    alert('Hiányzik a PehelyCore (pehely-core.js). Tedd a HTML-ek mellé ugyanabba a mappába. Ha csak verziószámos (pl. pehely-core_vXX.js) van, nevezd át pehely-core.js-re.');
     throw new Error('PehelyCore hiányzik');
   }
   const {
@@ -440,16 +433,15 @@
     buildSingleTreeSegments,
     buildSnowflakeSegments,
     makeRectFromBase,
-    segmentToPolys,
-    computePolysForParams,
-    computePolysForCode,
+    segmentToPolygons,
+    computePolygonsForParams,
+    computePolygonsForCode,
     buildLaserContoursExact,
     computeContoursForParams,
-    computeContoursForCode: coreComputeContoursForCode,
-    addJpegCommentToArrayBuffer,
-    createJpegBlobForCode,
-    parseCodeFromJpegArrayBuffer
-  } = PC;
+jpegAddComment,
+    jpegCreateCodeBlob,
+    jpegParsePehelyCode
+  } = PehelyCore;
 
 
 
@@ -500,7 +492,7 @@
         mode = outDirHandle ? 'dir' : 'download';
         return outDirHandle;
       } catch (e) {
-        console.warn('Kimeneti mappa kiválasztása megszakítva vagy hiba:', e);
+        dbgWarn('Kimeneti mappa kiválasztása megszakítva vagy hiba:', e);
         mode = 'download';
         outDirHandle = null;
         return null;
@@ -521,7 +513,7 @@
           try {
             await writeToDir(dir, f.name, f.blob);
           } catch (e) {
-            console.warn('Nem sikerült mappába menteni, letöltés lesz:', e);
+            dbgWarn('Nem sikerült mappába menteni, letöltés lesz:', e);
             downloadBlob(f.blob, f.name);
           }
         }
@@ -536,24 +528,13 @@
       outDirHandle = dirHandleOrNull || null;
       mode = outDirHandle ? 'dir' : 'unknown';
     }
-
-    function reset() {
-      outDirHandle = null;
-      mode = 'unknown';
-    }
-
-    return { saveMany, ensureOutDir, setOutDirHandle, reset };
+    return { saveMany, ensureOutDir, setOutDirHandle };
   })();
 
 
 
-  async function saveFileWithPickerOrDownload(suggestedName, mimeType, data) {
-    const blob = (data instanceof Blob) ? data : new Blob([data], { type: mimeType });
-    await saveManager.saveMany([{ name: suggestedName, blob }]);
-  }
-
   // ====== PEHELY geometria (ugyanaz a logika, mint a HAVAZO-ban) ======
-  const DXF_TARGET_SIZE = PC.DXF_TARGET_SIZE; // mm (core-ból)
+  const DXF_TARGET_SIZE = PehelyCore.DXF_TARGET_SIZE; // mm (core-ból)
   const geometryCache = new Map(); // code -> { contoursWithFlags }
 
   // [KISZERVEZVE pehely-core.js-be] paramsFromCode
@@ -580,10 +561,10 @@
   // [KISZERVEZVE pehely-core.js-be] buildTrapHexFromEdge
 
 
-  // [KISZERVEZVE pehely-core.js-be] segmentToPolys
+  // [KISZERVEZVE pehely-core.js-be] segmentToPolygons
 
 
-  // [KISZERVEZVE pehely-core.js-be] pointInPolygon
+  // [KISZERVEZVE pehely-core.js-be] isPointInPolygon
 
 
   // [KISZERVEZVE pehely-core.js-be] buildLaserContoursExact
@@ -600,26 +581,26 @@
     return result;
   }
 
-  // [KISZERVEZVE pehely-core.js-be] computePolysForParams
+  // [KISZERVEZVE pehely-core.js-be] computePolygonsForParams
 
 
-  // [KISZERVEZVE pehely-core.js-be] computePolysForCode
+  // [KISZERVEZVE pehely-core.js-be] computePolygonsForCode
 
 
 
   // ====== JPG komment (PEHELY-kód) ======
-  // [KISZERVEZVE pehely-core.js-be] addJpegCommentToArrayBuffer
+  // [KISZERVEZVE pehely-core.js-be] jpegAddComment
 
 
-  // [KISZERVEZVE pehely-core.js-be] parseCodeFromJpegArrayBuffer
+  // [KISZERVEZVE pehely-core.js-be] jpegParsePehelyCode
 
 
-  // [KISZERVEZVE pehely-core.js-be] createJpegBlobForCode
+  // [KISZERVEZVE pehely-core.js-be] jpegCreateCodeBlob
 
 
   // ====== UI-hez tartozó logika ======
   let currentCode = null;
-  let currentPolyData = null;
+  let currentPolygonData = null;
   let currentParams = null;
   let showOutline = false; // alapból kontúr kikapcsolva
 
@@ -736,7 +717,7 @@
     const code = buildCodeFromParams(p);
     currentParams = p;
     currentCode = code;
-    currentPolyData = computePolysForParams(p);
+    currentPolygonData = computePolygonsForParams(p);
     redraw();
   }
 
@@ -758,11 +739,11 @@
     } catch (e) { /* no-op */ }
 
 
-    if (!currentPolyData || !currentPolyData.polys || !currentPolyData.polys.length) {
+    if (!currentPolygonData || !currentPolygonData.polygons || !currentPolygonData.polygons.length) {
       return;
     }
 
-    const { polys, minX, maxX, minY, maxY } = currentPolyData;
+    const { polygons, minX, maxX, minY, maxY } = currentPolygonData;
     const width  = maxX - minX || 1;
     const height = maxY - minY || 1;
 
@@ -774,12 +755,12 @@
     ctx.lineCap = 'round';
     ctx.lineWidth = 1.2;
 
-    function drawPoly(poly, ox, oy, fillStyle, strokeStyle) {
-      if (!poly || poly.length < 2) return;
+    function drawPolygon(polygon, ox, oy, fillStyle, strokeStyle) {
+      if (!polygon || polygon.length < 2) return;
       ctx.beginPath();
-      for (let i = 0; i < poly.length; i++) {
-        const x = poly[i][0] + (ox || 0);
-        const y = poly[i][1] + (oy || 0);
+      for (let i = 0; i < polygon.length; i++) {
+        const x = polygon[i][0] + (ox || 0);
+        const y = polygon[i][1] + (oy || 0);
         const sx = canvas.width / 2 + (x - cx) * scale;
         const sy = canvas.height / 2 - (y - cy) * scale;
         if (i === 0) ctx.moveTo(sx, sy);
@@ -815,14 +796,14 @@
         const t = s / steps;
         const ox = dx * t;
         const oy = dy * t;
-        for (const poly of polys) {
-          drawPoly(poly, ox, oy, depthColor, null);
+        for (const polygon of polygons) {
+          drawPolygon(polygon, ox, oy, depthColor, null);
         }
       }
 
       // Előlap
-      for (const poly of polys) {
-        drawPoly(poly, 0, 0, faceColor, strokeColor);
+      for (const polygon of polygons) {
+        drawPolygon(polygon, 0, 0, faceColor, strokeColor);
       }
       return;
     }
@@ -830,8 +811,8 @@
     // 1-es stílus: eredeti nézet
     const fillColor = '#bfe9ff';
     const strokeColor = showOutline ? '#000000' : fillColor;
-    for (const poly of polys) {
-      drawPoly(poly, 0, 0, fillColor, strokeColor);
+    for (const polygon of polygons) {
+      drawPolygon(polygon, 0, 0, fillColor, strokeColor);
     }
   }
 
@@ -898,17 +879,17 @@
     const baseName = `PEHELY-${currentCode}`;
 
     // DXF generálása (egységesen a core-ban)
-    const dxf = PC.buildSingleFlakeDxf(currentCode, geom.contoursWithFlags, paramsForExport.minRectMm);
+    const dxf = PehelyCore.buildSingleFlakeDxf(currentCode, geom.contoursWithFlags, paramsForExport.minRectMm);
 
     // DXF mentése
-    await saveFileWithPickerOrDownload(baseName + '.dxf', 'application/dxf', dxf);
+    await PehelyCore.saveFileWithPickerOrDownload(saveManager, baseName + '.dxf', 'application/dxf', dxf);
 
 // JPG generálása és mentése
-    const jpgBlob = await createJpegBlobForCode(currentCode, paramsForExport);
+    const jpgBlob = await jpegCreateCodeBlob(currentCode, paramsForExport);
     if (jpgBlob) {
-      await saveFileWithPickerOrDownload(baseName + '.jpg', 'image/jpeg', jpgBlob);
+      await PehelyCore.saveFileWithPickerOrDownload(saveManager, baseName + '.jpg', 'image/jpeg', jpgBlob);
     } else {
-      console.warn('Nem sikerült JPG-t generálni.');
+      dbgWarn('Nem sikerült JPG-t generálni.');
     }
 
     alert('DXF és JPG mentése kész (ahol engedélyezve volt).');
@@ -968,7 +949,7 @@ async function loadFromJPG() {
           });
           file = await handle.getFile();
         } catch (e) {
-          console.warn('showOpenFilePicker nem használható, fallback <input> lesz:', e);
+          dbgWarn('showOpenFilePicker nem használható, fallback <input> lesz:', e);
           file = await pickJpegWithInput();
         }
       } else {
@@ -979,7 +960,7 @@ async function loadFromJPG() {
       if (!file) return;
 
       const arrayBuffer = await file.arrayBuffer();
-      const code = parseCodeFromJpegArrayBuffer(arrayBuffer);
+      const code = jpegParsePehelyCode(arrayBuffer);
       if (!code) {
         alert('A kiválasztott JPG nem tartalmaz PEHELY-kódot.');
         return;
@@ -989,10 +970,10 @@ async function loadFromJPG() {
       applyParamsToUI(params);
       currentCode = code;
       currentParams = getParamsFromUI(); // runoff is UI-only
-      currentPolyData = computePolysForParams(currentParams);
+      currentPolygonData = computePolygonsForParams(currentParams);
       redraw();
     } catch (e) {
-      console.warn('Betöltés megszakítva vagy hiba:', e);
+      dbgWarn('Betöltés megszakítva vagy hiba:', e);
     }
   }
 
@@ -1009,9 +990,9 @@ async function loadFromJPG() {
   window.addEventListener('load', () => {
     // Verzió (kívül-belül egységesen)
     const vEl = document.getElementById('appVersion');
-    const v = (PC && PC.VERSION) ? PC.VERSION : 'v82.9';
-    if (vEl) vEl.textContent = v;
-    document.title = 'Rodé Lajos - Hópehely generátor ' + v;
+    const ecosystemVersion = (PehelyCore && PehelyCore.ecosystemVersion) ? PehelyCore.ecosystemVersion : 'v?';
+    if (vEl) vEl.textContent = ecosystemVersion;
+    document.title = 'Rodé Lajos - Hópehely generátor ' + ecosystemVersion;
 
     
     // Stílus váltás: dupla kattintással / dupla tappal léptetjük a stílusokat
@@ -1020,7 +1001,7 @@ async function loadFromJPG() {
       try { _styleCanvas.style.touchAction = 'manipulation'; } catch (e) { /* no-op */ }
 
       const handler = (ev) => {
-        if (!currentPolyData) return;
+        if (!currentPolygonData) return;
         PEHELY_STYLE = (PEHELY_STYLE % 2) + 1;
         redraw();
         if (ev && ev.preventDefault) ev.preventDefault();

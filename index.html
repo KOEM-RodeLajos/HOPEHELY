@@ -107,11 +107,11 @@
     // Verzió központosítva a core-ban
     (function() {
       try {
-        const PC = window.PehelyCore;
-        const v = (PC && PC.VERSION) ? PC.VERSION : 'v82.9';
-        document.title = 'HÓPEHELY – Host ' + v;
+        const PehelyCore = window.PehelyCore;
+        const ecosystemVersion = (PehelyCore && PehelyCore.ecosystemVersion) ? PehelyCore.ecosystemVersion : 'v?';
+        document.title = 'HÓPEHELY – Host ' + ecosystemVersion;
         const hint = document.getElementById('hostHint');
-        if (hint) hint.textContent = v;
+        if (hint) hint.textContent = ecosystemVersion;
       } catch (e) {
         // no-op
       }
